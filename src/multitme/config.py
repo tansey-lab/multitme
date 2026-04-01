@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
         "beta": 1.0,
         "beta_warmup_epochs": 10,
         "print_every": 5,
+        "save_freq": 1,
         "seed": 1,
     },
     "pseudo_labels": {

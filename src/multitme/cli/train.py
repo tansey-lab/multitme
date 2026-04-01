@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import scanpy as sc
 import torch
+from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
 from multitme.config import load_config
@@ -23,6 +24,9 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description="Train MultiModal CycleVAE")
     parser.add_argument("--config", type=str, required=True, help="YAML config file")
+    parser.add_argument(
+        "--resume-from", type=str, default=None, help="Path to checkpoint.pt to resume from"
+    )
     parser.add_argument("overrides", nargs="*", help="OmegaConf overrides")
     args = parser.parse_args(argv)
 
@@ -31,6 +35,9 @@ def main(argv: list[str] | None = None) -> None:
     device = get_device()
     outdir = Path(cfg.output.dir)
     outdir.mkdir(parents=True, exist_ok=True)
+
+    # Save config to output dir
+    OmegaConf.save(cfg, outdir / "config.yaml")
 
     # Load data
     scrna = sc.read_h5ad(cfg.data.scrna_path)
@@ -104,16 +111,50 @@ def main(argv: list[str] | None = None) -> None:
     )
     loader = DataLoader(dataset, batch_size=None, shuffle=False)
 
+    # wandb config
+    wandb_config = None
+    if cfg.wandb.enabled:
+        wandb_config = {
+            "project": cfg.wandb.project,
+            "entity": cfg.wandb.entity,
+            "name": cfg.wandb.name,
+            "tags": list(cfg.wandb.tags) if cfg.wandb.tags else [],
+            "full_config": OmegaConf.to_container(cfg, resolve=True),
+        }
+
     trainer = CycleVAETrainer(
         model,
         learning_rate=cfg.training.learning_rate,
         cycle_weight=cfg.training.cycle_weight,
         beta=cfg.training.beta,
         beta_warmup_epochs=cfg.training.beta_warmup_epochs,
+        output_dir=str(outdir),
+        save_freq=cfg.training.get("save_freq", 1),
+        wandb_enabled=cfg.wandb.enabled,
+        wandb_config=wandb_config,
     )
-    trainer.fit(loader, n_epochs=cfg.training.n_epochs, print_every=cfg.training.print_every)
 
-    # Save
+    # Resume from checkpoint
+    start_epoch = 0
+    resume_path = args.resume_from
+    if resume_path is None:
+        # Auto-detect checkpoint in output dir
+        auto_ckpt = outdir / "checkpoint.pt"
+        if auto_ckpt.exists():
+            resume_path = str(auto_ckpt)
+            logger.info(f"Auto-detected checkpoint: {resume_path}")
+
+    if resume_path:
+        start_epoch = trainer.load_checkpoint(resume_path, device=device)
+
+    trainer.fit(
+        loader,
+        n_epochs=cfg.training.n_epochs,
+        print_every=cfg.training.print_every,
+        start_epoch=start_epoch,
+    )
+
+    # Save final model + metadata
     torch.save(model.state_dict(), outdir / "model.pt")
     torch.save(
         {"type_to_idx": type_to_idx, "unique_types": unique_types, "config": cfg},

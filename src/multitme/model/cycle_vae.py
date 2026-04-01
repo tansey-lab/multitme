@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 import numpy as np
@@ -332,12 +333,27 @@ class CyclingDataset(Dataset):
 
 
 class CycleVAETrainer:
-    def __init__(self, model, learning_rate=1e-3, cycle_weight=1.0, beta=1.0, beta_warmup_epochs=0):
+    def __init__(
+        self,
+        model,
+        learning_rate=1e-3,
+        cycle_weight=1.0,
+        beta=1.0,
+        beta_warmup_epochs=0,
+        output_dir=None,
+        save_freq=1,
+        wandb_enabled=False,
+        wandb_config=None,
+    ):
         self.model = model
         self.cycle_weight = cycle_weight
         self.beta = beta
         self.beta_warmup_epochs = beta_warmup_epochs
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        self.output_dir = output_dir
+        self.save_freq = save_freq
+        self.wandb_enabled = wandb_enabled
+        self.run = None
         self.history = {
             "total": [],
             "reconstruction": [],
@@ -349,10 +365,54 @@ class CycleVAETrainer:
             "cycle_cls": [],
         }
 
+        if self.wandb_enabled:
+            try:
+                import wandb
+
+                wandb_mode = "online"
+                if not os.environ.get("WANDB_API_KEY"):
+                    wandb_mode = "offline"
+                else:
+                    wandb.login()
+
+                wb_cfg = wandb_config or {}
+                self.run = wandb.init(
+                    project=wb_cfg.get("project", "multitme"),
+                    entity=wb_cfg.get("entity"),
+                    name=wb_cfg.get("name"),
+                    tags=wb_cfg.get("tags", []),
+                    config=wb_cfg.get("full_config"),
+                    mode=wandb_mode,
+                )
+                logger.info(f"wandb initialized (mode={wandb_mode})")
+            except ImportError:
+                logger.warning("wandb not installed, disabling experiment tracking")
+                self.wandb_enabled = False
+
     def _get_beta(self, epoch):
         if self.beta_warmup_epochs <= 0:
             return self.beta
         return self.beta * min(1.0, epoch / self.beta_warmup_epochs)
+
+    def save_checkpoint(self, epoch):
+        if self.output_dir is None:
+            return
+        checkpoint = {
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "epoch": epoch,
+        }
+        path = os.path.join(self.output_dir, "checkpoint.pt")
+        torch.save(checkpoint, path)
+        logger.info(f"Checkpoint saved: epoch {epoch} -> {path}")
+
+    def load_checkpoint(self, path, device=None):
+        ckpt = torch.load(path, map_location=device, weights_only=False)
+        self.model.load_state_dict(ckpt["model"])
+        self.optimizer.load_state_dict(ckpt["optimizer"])
+        start_epoch = ckpt.get("epoch", -1) + 1
+        logger.info(f"Resumed from checkpoint: {path} (epoch {start_epoch})")
+        return start_epoch
 
     def train_epoch(self, dataloader, epoch=0):
         self.model.train()
@@ -376,6 +436,10 @@ class CycleVAETrainer:
             losses["total"].backward()
             self.optimizer.step()
 
+            step_loss = losses["total"].item()
+            if self.run is not None:
+                self.run.log({"train/loss_step": step_loss})
+
             for k in epoch_losses:
                 if k in losses:
                     epoch_losses[k] += losses[k].item()
@@ -384,19 +448,24 @@ class CycleVAETrainer:
         for k in epoch_losses:
             epoch_losses[k] /= max(n_batches, 1)
             self.history[k].append(epoch_losses[k])
+
+        if self.run is not None:
+            self.run.log({"epoch": epoch, **{f"train/{k}": v for k, v in epoch_losses.items()}})
+
         return epoch_losses
 
-    def fit(self, dataloader, n_epochs=50, print_every=5):
+    def fit(self, dataloader, n_epochs=50, print_every=5, start_epoch=0):
         device = next(self.model.parameters()).device
         logger.info(
             f"Training MultiModal CycleVAE on {device} | modalities={self.model.modality_names} "
             f"| latent={self.model.n_latent} | batches/epoch={len(dataloader)} "
-            f"| beta={self.beta:.2f} (warmup={self.beta_warmup_epochs})"
+            f"| beta={self.beta:.2f} (warmup={self.beta_warmup_epochs}) "
+            f"| epochs={start_epoch}-{n_epochs - 1}"
         )
 
         start_time = time.time()
 
-        for epoch in range(n_epochs):
+        for epoch in range(start_epoch, n_epochs):
             epoch_start = time.time()
 
             if hasattr(dataloader.dataset, "reshuffle"):
@@ -415,8 +484,15 @@ class CycleVAETrainer:
                     f"common={epoch_losses['common_feature']:.2f} beta={beta_now:.2f} {et:.1f}s"
                 )
 
+            if self.output_dir and epoch % self.save_freq == 0:
+                self.save_checkpoint(epoch)
+
             if device.type == "mps" and epoch % 5 == 0 and epoch > 0:
                 torch.mps.empty_cache()
+
+        # Final checkpoint
+        if self.output_dir:
+            self.save_checkpoint(n_epochs - 1)
 
         total_time = time.time() - start_time
         logger.info(

@@ -23,6 +23,7 @@ training:
   beta: 1.0
   beta_warmup_epochs: 10
   print_every: 5
+  save_freq: 1
   seed: 1
 
 pseudo_labels:
@@ -44,6 +45,13 @@ marker_dict:
   SMC: [COL4A1, COL18A1, MCAM, COL4A2, PDGFRB]
   Tprolif: [CD3E, TUBB]
   mregDC: [FSCN1, CCL22, LAMP3, CD83, LY75]
+
+wandb:
+  enabled: false
+  project: multitme
+  entity: null
+  name: null
+  tags: []
 
 output:
   dir: results

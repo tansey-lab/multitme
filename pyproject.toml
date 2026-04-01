@@ -28,6 +28,7 @@ dependencies = [
     "scanpy>=1.9",
     "anndata>=0.10",
     "omegaconf>=2.3",
+    "wandb>=0.16",
 ]
 
 [project.optional-dependencies]
