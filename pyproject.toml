@@ -1,12 +1,66 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "multitme"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multimodal CycleVAE for tumor microenvironment cell typing across scRNA-seq and spatial transcriptomics"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Haoran Zhang" },
+    { name = "Jeff Quinn" },
+]
+keywords = ["single-cell", "spatial-transcriptomics", "cell-typing", "VAE", "multimodal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "scanpy>=1.9",
+    "anndata>=0.10",
+    "omegaconf>=2.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "pre-commit>=3.0",
+]
+
+[project.scripts]
+multitme-preprocess = "multitme.cli.preprocess:main"
+multitme-train = "multitme.cli.train:main"
+multitme-infer = "multitme.cli.infer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
 
 [dependency-groups]
 dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "pre-commit>=3.0",
     "nf-core>=3.5.2",
 ]

@@ -41,6 +41,7 @@ workflow NFCORE_MULTITME {
         samplesheet
     )
     emit:
+    predictions    = MULTITME.out.predictions    // channel: [ meta, predictions.h5ad ]
     multiqc_report = MULTITME.out.multiqc_report // channel: /path/to/multiqc_report.html
 }
 /*

@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Data files
+*.h5ad
+*.npy
+*.npz
+results/
+
+# Nextflow
+work/
+.nextflow/
+.nextflow.log*
+nextflow/work/
+nextflow/.nextflow/
+nextflow/.nextflow.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/

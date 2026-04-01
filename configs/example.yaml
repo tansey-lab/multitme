@@ -1,0 +1,51 @@
+data:
+  scrna_path: data/scRNA_sample.h5ad
+  xenium_path: data/xenium_sample.h5ad
+  preprocess_method: clr
+  pseudocount: 0.001
+  clip_percentile: 99.5
+  annotation_column: major_annotation
+
+model:
+  n_latent: 20
+  hidden_dims: [512, 256]
+  alignment_method: swd
+  aux_loss_multiplier: 1000.0
+  type_alignment_weight: 100.0
+  cycle_cls_weight: 1000.0
+  labeled_modality: scrna
+
+training:
+  n_epochs: 50
+  learning_rate: 0.001
+  batch_size: 4096
+  cycle_weight: 1.0
+  beta: 1.0
+  beta_warmup_epochs: 10
+  print_every: 5
+  seed: 1
+
+pseudo_labels:
+  top_k: 50
+  normalize: false
+  min_score: null
+
+marker_dict:
+  B: [CD19, MS4A1, CD79A, CD22, POU2AF1]
+  CD4T: [CD3E, CD2, CD247, CTLA4, JAK3]
+  CD8T: [CD8A, CD3E, GZMA, GZMH, ITGAL]
+  Endothelial: [HSPG2, COL4A1, PLVAP, PECAM1, COL4A2]
+  Epithelial: [EPCAM, ST14, IGF2, COL2A1, CDH1]
+  Fibroblast: [COL5A1, COL5A2, POSTN, MMP14, CTSK]
+  Macrophage: [CD14, STAB1, FCGR2A, ITGB2, CD4]
+  Mast: [HDC, GATA2, KIT, IL1RL1, SLC18A2]
+  Neutrophil: [CSF3R, ITGAX, TREM1, HCAR2, BCL2A1]
+  Plasma: [MZB1, DERL3, PIM2, XBP1, TENT5C]
+  SMC: [COL4A1, COL18A1, MCAM, COL4A2, PDGFRB]
+  Tprolif: [CD3E, TUBB]
+  mregDC: [FSCN1, CCL22, LAMP3, CD83, LY75]
+
+output:
+  dir: results
+  save_latent: true
+  save_predictions: true

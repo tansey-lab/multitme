@@ -3,9 +3,12 @@
     IMPORT MODULES / SUBWORKFLOWS / FUNCTIONS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-include { MULTIQC                } from '../modules/nf-core/multiqc/main'
-include { paramsSummaryMap       } from 'plugin/nf-schema'
-include { paramsSummaryMultiqc   } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { PREPROCESS            } from '../modules/local/preprocess/main'
+include { TRAIN                 } from '../modules/local/train/main'
+include { INFER                 } from '../modules/local/infer/main'
+include { MULTIQC               } from '../modules/nf-core/multiqc/main'
+include { paramsSummaryMap      } from 'plugin/nf-schema'
+include { paramsSummaryMultiqc  } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { methodsDescriptionText } from '../subworkflows/local/utils_nfcore_multitme_pipeline'
 
@@ -19,10 +22,48 @@ workflow MULTITME {
 
     take:
     ch_samplesheet // channel: samplesheet read in from --input
+
     main:
 
     ch_versions = channel.empty()
     ch_multiqc_files = channel.empty()
+
+    //
+    // MODULE: Preprocess scRNA + Xenium data
+    //
+    ch_input = ch_samplesheet.map { meta, scrna, xenium ->
+        [ meta, file(scrna), file(xenium) ]
+    }
+
+    PREPROCESS ( ch_input )
+    ch_versions = ch_versions.mix(PREPROCESS.out.versions)
+
+    //
+    // MODULE: Train CycleVAE model
+    //
+    ch_config = ch_samplesheet.map { meta, scrna, xenium ->
+        def config_file = meta.config ? file(meta.config) : file("${projectDir}/../configs/example.yaml")
+        [ meta, config_file ]
+    }
+
+    TRAIN (
+        ch_config,
+        PREPROCESS.out.scrna_adata,
+        PREPROCESS.out.xenium_adata,
+    )
+    ch_versions = ch_versions.mix(TRAIN.out.versions)
+
+    //
+    // MODULE: Infer cell types on Xenium data
+    //
+    ch_model = TRAIN.out.model.join(TRAIN.out.metadata)
+    ch_xenium_for_infer = PREPROCESS.out.xenium_adata
+
+    INFER (
+        ch_model,
+        ch_xenium_for_infer,
+    )
+    ch_versions = ch_versions.mix(INFER.out.versions)
 
     //
     // Collate and save software versions
@@ -52,7 +93,6 @@ workflow MULTITME {
             sort: true,
             newLine: true
         ).set { ch_collated_versions }
-
 
     //
     // MODULE: MultiQC
@@ -94,9 +134,10 @@ workflow MULTITME {
         []
     )
 
-    emit:multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html
-    versions       = ch_versions                 // channel: [ path(versions.yml) ]
-
+    emit:
+    predictions    = INFER.out.predictions        // channel: [ meta, predictions.h5ad ]
+    multiqc_report = MULTIQC.out.report.toList()  // channel: /path/to/multiqc_report.html
+    versions       = ch_versions                  // channel: [ path(versions.yml) ]
 }
 
 /*
