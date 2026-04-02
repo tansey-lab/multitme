@@ -2,10 +2,10 @@ process PREPROCESS {
     tag "$meta.id"
     label 'process_medium'
 
-    container "ghcr.io/${params.container_registry}/multitme:${params.container_version}"
+    container "${params.container_registry}/multitme:${params.container_version}"
 
     input:
-    tuple val(meta), path(scrna_h5ad), path(xenium_input)
+    tuple val(meta), path(scrna), path(xenium)
 
     output:
     tuple val(meta), path("${meta.id}_scrna_preprocessed.npy"),  emit: scrna_data
@@ -18,8 +18,8 @@ process PREPROCESS {
     def args = task.ext.args ?: ''
     """
     multitme-preprocess \\
-        data.scrna_path=${scrna_h5ad} \\
-        data.xenium_path=${xenium_input} \\
+        data.scrna_path=${scrna} \\
+        data.xenium_path=${xenium} \\
         data.preprocess_method=${params.preprocess_method ?: 'clr'} \\
         output.dir=. \\
         ${args}

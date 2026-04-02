@@ -1,24 +1,28 @@
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM bitnami/pytorch:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-
-# Install Python and system deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 python3.12-venv python3-pip curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Switch to root for installation
+USER root
 
 WORKDIR /app
 
 # Copy project files
 COPY pyproject.toml uv.lock ./
-COPY src/ src/
+COPY src/ ./src/
+COPY configs/ ./configs/
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Install the package
 RUN uv sync --no-dev --no-editable
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV POLARS_SKIP_CPU_CHECK=1
+ENV TRITON_CACHE_DIR=/tmp/triton_cache
+
+# Switch back to non-root user
+USER 1001
 
 # Entry point
 ENTRYPOINT ["uv", "run"]

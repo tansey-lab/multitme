@@ -13,21 +13,18 @@
                 "errorMessage": "Sample name must be provided and cannot contain spaces",
                 "meta": ["id"]
             },
-            "fastq_1": {
+            "scrna": {
                 "type": "string",
                 "format": "file-path",
                 "exists": true,
-                "pattern": "^([\\S\\s]*\\/)?[^\\s\\/]+\\.f(ast)?q\\.gz$",
-                "errorMessage": "FastQ file for reads 1 must be provided, cannot contain spaces and must have extension '.fq.gz' or '.fastq.gz'"
+                "errorMessage": "Path to scRNA-seq h5ad file must be provided"
             },
-            "fastq_2": {
+            "xenium": {
                 "type": "string",
-                "format": "file-path",
                 "exists": true,
-                "pattern": "^([\\S\\s]*\\/)?[^\\s\\/]+\\.f(ast)?q\\.gz$",
-                "errorMessage": "FastQ file for reads 2 cannot contain spaces and must have extension '.fq.gz' or '.fastq.gz'"
+                "errorMessage": "Path to Xenium data must be provided (h5ad file, SpatialData zarr directory, or Xenium Ranger output directory)"
             }
         },
-        "required": ["sample", "fastq_1"]
+        "required": ["sample", "scrna", "xenium"]
     }
 }

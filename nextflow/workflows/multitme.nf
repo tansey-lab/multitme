@@ -57,11 +57,9 @@ workflow MULTITME {
     //
     // MODULE: Infer cell types on Xenium data
     //
-    ch_xenium_for_infer = PREPROCESS.out.xenium_adata
-
     INFER (
         TRAIN.out.checkpoint,
-        ch_xenium_for_infer,
+        PREPROCESS.out.xenium_adata,
     )
     ch_versions = ch_versions.mix(INFER.out.versions)
 

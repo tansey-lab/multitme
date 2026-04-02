@@ -1,2 +1,2 @@
-sample,scrna_h5ad,xenium_h5ad
+sample,scrna,xenium
 tumor_01,data/scRNA_sample.h5ad,data/xenium_sample.h5ad

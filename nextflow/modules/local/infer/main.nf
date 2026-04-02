@@ -2,11 +2,11 @@ process INFER {
     tag "$meta.id"
     label 'process_gpu'
 
-    container "ghcr.io/${params.container_registry}/multitme:${params.container_version}"
+    container "${params.container_registry}/multitme:${params.container_version}"
 
     input:
     tuple val(meta), path(checkpoint)
-    tuple val(meta), path(input_h5ad)
+    tuple val(meta), path(xenium)
 
     output:
     tuple val(meta), path("${meta.id}_predictions.h5ad"), emit: predictions
@@ -20,7 +20,7 @@ process INFER {
     """
     multitme-infer \\
         --checkpoint ${checkpoint} \\
-        --input ${input_h5ad} \\
+        --input ${xenium} \\
         --modality ${modality} \\
         --output-dir . \\
         ${args}

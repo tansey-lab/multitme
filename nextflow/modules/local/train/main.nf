@@ -2,12 +2,12 @@ process TRAIN {
     tag "$meta.id"
     label 'process_gpu'
 
-    container "ghcr.io/${params.container_registry}/multitme:${params.container_version}"
+    container "${params.container_registry}/multitme:${params.container_version}"
 
     input:
     tuple val(meta), path(config)
-    tuple val(meta), path(scrna_h5ad)
-    tuple val(meta), path(xenium_h5ad)
+    tuple val(meta), path(scrna)
+    tuple val(meta), path(xenium)
 
     output:
     tuple val(meta), path("${meta.id}_checkpoint.pt"), emit: checkpoint
@@ -18,8 +18,8 @@ process TRAIN {
     """
     multitme-train \\
         --config ${config} \\
-        data.scrna_path=${scrna_h5ad} \\
-        data.xenium_path=${xenium_h5ad} \\
+        data.scrna_path=${scrna} \\
+        data.xenium_path=${xenium} \\
         output.dir=. \\
         ${args}
 

@@ -2,7 +2,7 @@ process REPORT {
     tag "$meta.id"
     label 'process_medium'
 
-    container "ghcr.io/${params.container_registry}/multitme:${params.container_version}"
+    container "${params.container_registry}/multitme:${params.container_version}"
 
     input:
     tuple val(meta), path(predictions_h5ad)

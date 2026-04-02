@@ -32,6 +32,7 @@ dependencies = [
     "matplotlib>=3.7",
     "spatialdata>=0.1",
     "spatialdata-io>=0.1",
+    "multiqc>=1.33",
 ]
 
 [project.optional-dependencies]
