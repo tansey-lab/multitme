@@ -6,6 +6,7 @@
 include { PREPROCESS            } from '../modules/local/preprocess/main'
 include { TRAIN                 } from '../modules/local/train/main'
 include { INFER                 } from '../modules/local/infer/main'
+include { REPORT                } from '../modules/local/report/main'
 include { MULTIQC               } from '../modules/nf-core/multiqc/main'
 include { paramsSummaryMap      } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc  } from '../subworkflows/nf-core/utils_nfcore_pipeline'
@@ -56,14 +57,25 @@ workflow MULTITME {
     //
     // MODULE: Infer cell types on Xenium data
     //
-    ch_model = TRAIN.out.model.join(TRAIN.out.metadata)
     ch_xenium_for_infer = PREPROCESS.out.xenium_adata
 
     INFER (
-        ch_model,
+        TRAIN.out.checkpoint,
         ch_xenium_for_infer,
     )
     ch_versions = ch_versions.mix(INFER.out.versions)
+
+    //
+    // MODULE: Generate reports (optional)
+    //
+    if (!params.skip_report) {
+        REPORT (
+            INFER.out.predictions,
+            INFER.out.probs,
+            INFER.out.latent,
+        )
+        ch_versions = ch_versions.mix(REPORT.out.versions)
+    }
 
     //
     // Collate and save software versions

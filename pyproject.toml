@@ -29,6 +29,9 @@ dependencies = [
     "anndata>=0.10",
     "omegaconf>=2.3",
     "wandb>=0.16",
+    "matplotlib>=3.7",
+    "spatialdata>=0.1",
+    "spatialdata-io>=0.1",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +45,7 @@ dev = [
 multitme-preprocess = "multitme.cli.preprocess:main"
 multitme-train = "multitme.cli.train:main"
 multitme-infer = "multitme.cli.infer:main"
+multitme-report = "multitme.cli.report:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

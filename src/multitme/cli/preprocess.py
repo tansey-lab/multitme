@@ -10,7 +10,7 @@ import numpy as np
 import scanpy as sc
 
 from multitme.config import load_config
-from multitme.data import preprocess
+from multitme.data import load_xenium_adata, preprocess
 from multitme.utils import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if cfg.data.xenium_path:
         logger.info(f"Loading Xenium data from {cfg.data.xenium_path}")
-        adata = sc.read_h5ad(cfg.data.xenium_path)
+        adata = load_xenium_adata(cfg.data.xenium_path)
         adata = adata[adata.X.sum(axis=1) > 0]
         data = preprocess(
             np.array(adata.X.todense()),

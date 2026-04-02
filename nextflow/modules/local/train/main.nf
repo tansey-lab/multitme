@@ -10,9 +10,8 @@ process TRAIN {
     tuple val(meta), path(xenium_h5ad)
 
     output:
-    tuple val(meta), path("${meta.id}_model.pt"),    emit: model
-    tuple val(meta), path("${meta.id}_metadata.pt"), emit: metadata
-    path "versions.yml",                              emit: versions
+    tuple val(meta), path("${meta.id}_checkpoint.pt"), emit: checkpoint
+    path "versions.yml",                                emit: versions
 
     script:
     def args = task.ext.args ?: ''
@@ -24,8 +23,7 @@ process TRAIN {
         output.dir=. \\
         ${args}
 
-    mv model.pt ${meta.id}_model.pt
-    mv metadata.pt ${meta.id}_metadata.pt
+    mv checkpoint.pt ${meta.id}_checkpoint.pt
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

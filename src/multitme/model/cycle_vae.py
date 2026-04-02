@@ -342,6 +342,7 @@ class CycleVAETrainer:
         beta_warmup_epochs=0,
         output_dir=None,
         save_freq=1,
+        metadata=None,
         wandb_enabled=False,
         wandb_config=None,
     ):
@@ -352,6 +353,7 @@ class CycleVAETrainer:
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         self.output_dir = output_dir
         self.save_freq = save_freq
+        self.metadata = metadata
         self.wandb_enabled = wandb_enabled
         self.run = None
         self.history = {
@@ -401,6 +403,7 @@ class CycleVAETrainer:
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "epoch": epoch,
+            "metadata": self.metadata,
         }
         path = os.path.join(self.output_dir, "checkpoint.pt")
         torch.save(checkpoint, path)

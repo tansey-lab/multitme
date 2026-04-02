@@ -10,7 +10,7 @@ import numpy as np
 import scanpy as sc
 import torch
 
-from multitme.data import preprocess
+from multitme.data import load_xenium_adata, preprocess
 from multitme.model import MultiModalCycleVAE
 from multitme.utils import configure_logging, get_device
 
@@ -21,39 +21,40 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description="Predict cell types with trained model")
     parser.add_argument(
-        "--model-dir", type=str, required=True, help="Directory with model.pt and metadata.pt"
+        "--checkpoint", type=str, required=True, help="Path to checkpoint.pt"
     )
-    parser.add_argument("--input", type=str, required=True, help="Path to input h5ad file")
+    parser.add_argument(
+        "--input", type=str, required=True,
+        help="Path to input (h5ad file, SpatialData zarr dir, or Xenium Ranger dir)",
+    )
     parser.add_argument("--modality", type=str, default="xenium", help="Modality name")
     parser.add_argument("--output-dir", type=str, default="results", help="Output directory")
     parser.add_argument("--preprocess-method", type=str, default="clr", help="Preprocessing method")
     args = parser.parse_args(argv)
 
     device = get_device()
-    model_dir = Path(args.model_dir)
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Load metadata
-    metadata = torch.load(model_dir / "metadata.pt", map_location="cpu", weights_only=False)
+    # Load checkpoint
+    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    metadata = ckpt["metadata"]
     unique_types = metadata["unique_types"]
     cfg = metadata["config"]
+    state_dict = ckpt["model"]
 
     # Load data
-    adata = sc.read_h5ad(args.input)
+    adata = load_xenium_adata(args.input)
     adata = adata[adata.X.sum(axis=1) > 0]
     data = preprocess(np.array(adata.X.todense()), method=args.preprocess_method)
     data_tensor = torch.tensor(data, dtype=torch.float32)
 
-    # Reconstruct model
-    # We need modality dims from the saved config; for inference on a single
-    # modality we only need that modality's encoder/decoder to exist.
+    # Reconstruct model from checkpoint — infer dummy modality dim from last decoder bias
     modality_dims = {args.modality: data_tensor.shape[1]}
-    # Add a dummy second modality so the model architecture matches the checkpoint
     dummy_mod = [m for m in ["scrna", "xenium"] if m != args.modality][0]
-    state_dict = torch.load(model_dir / "model.pt", map_location="cpu", weights_only=True)
-    # Infer the other modality dim from the state dict
-    dummy_dim = state_dict[f"decoders.{dummy_mod}.6.weight"].shape[0]
+    # Find the last bias in the dummy decoder to get its output dim
+    decoder_keys = sorted(k for k in state_dict if k.startswith(f"decoders.{dummy_mod}.") and k.endswith(".bias"))
+    dummy_dim = state_dict[decoder_keys[-1]].shape[0]
     modality_dims[dummy_mod] = dummy_dim
 
     model = MultiModalCycleVAE(

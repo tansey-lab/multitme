@@ -5,7 +5,7 @@ process PREPROCESS {
     container "ghcr.io/${params.container_registry}/multitme:${params.container_version}"
 
     input:
-    tuple val(meta), path(scrna_h5ad), path(xenium_h5ad)
+    tuple val(meta), path(scrna_h5ad), path(xenium_input)
 
     output:
     tuple val(meta), path("${meta.id}_scrna_preprocessed.npy"),  emit: scrna_data
@@ -19,7 +19,7 @@ process PREPROCESS {
     """
     multitme-preprocess \\
         data.scrna_path=${scrna_h5ad} \\
-        data.xenium_path=${xenium_h5ad} \\
+        data.xenium_path=${xenium_input} \\
         data.preprocess_method=${params.preprocess_method ?: 'clr'} \\
         output.dir=. \\
         ${args}

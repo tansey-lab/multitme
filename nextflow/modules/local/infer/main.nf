@@ -5,7 +5,7 @@ process INFER {
     container "ghcr.io/${params.container_registry}/multitme:${params.container_version}"
 
     input:
-    tuple val(meta), path(model_pt), path(metadata_pt)
+    tuple val(meta), path(checkpoint)
     tuple val(meta), path(input_h5ad)
 
     output:
@@ -19,7 +19,7 @@ process INFER {
     def args = task.ext.args ?: ''
     """
     multitme-infer \\
-        --model-dir . \\
+        --checkpoint ${checkpoint} \\
         --input ${input_h5ad} \\
         --modality ${modality} \\
         --output-dir . \\

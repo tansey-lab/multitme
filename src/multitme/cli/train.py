@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
 from multitme.config import load_config
-from multitme.data import preprocess, pseudo_label_from_markers
+from multitme.data import load_xenium_adata, preprocess, pseudo_label_from_markers
 from multitme.model import CycleVAETrainer, CyclingDataset, MultiModalCycleVAE
 from multitme.utils import configure_logging, get_device, set_seed
 
@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # Load data
     scrna = sc.read_h5ad(cfg.data.scrna_path)
-    xenium = sc.read_h5ad(cfg.data.xenium_path)
+    xenium = load_xenium_adata(cfg.data.xenium_path)
 
     scrna = scrna[scrna.X.sum(axis=1) > 0]
     xenium = xenium[xenium.X.sum(axis=1) > 0]
@@ -122,6 +122,12 @@ def main(argv: list[str] | None = None) -> None:
             "full_config": OmegaConf.to_container(cfg, resolve=True),
         }
 
+    metadata = {
+        "type_to_idx": type_to_idx,
+        "unique_types": unique_types,
+        "config": cfg,
+    }
+
     trainer = CycleVAETrainer(
         model,
         learning_rate=cfg.training.learning_rate,
@@ -130,6 +136,7 @@ def main(argv: list[str] | None = None) -> None:
         beta_warmup_epochs=cfg.training.beta_warmup_epochs,
         output_dir=str(outdir),
         save_freq=cfg.training.get("save_freq", 1),
+        metadata=metadata,
         wandb_enabled=cfg.wandb.enabled,
         wandb_config=wandb_config,
     )
@@ -153,14 +160,6 @@ def main(argv: list[str] | None = None) -> None:
         print_every=cfg.training.print_every,
         start_epoch=start_epoch,
     )
-
-    # Save final model + metadata
-    torch.save(model.state_dict(), outdir / "model.pt")
-    torch.save(
-        {"type_to_idx": type_to_idx, "unique_types": unique_types, "config": cfg},
-        outdir / "metadata.pt",
-    )
-    logger.info(f"Model saved to {outdir / 'model.pt'}")
 
 
 if __name__ == "__main__":
