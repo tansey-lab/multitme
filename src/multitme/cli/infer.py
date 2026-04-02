@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import scanpy as sc
 import torch
 
 from multitme.data import load_xenium_adata, preprocess
@@ -20,11 +19,11 @@ logger = logging.getLogger(__name__)
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description="Predict cell types with trained model")
+    parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint.pt")
     parser.add_argument(
-        "--checkpoint", type=str, required=True, help="Path to checkpoint.pt"
-    )
-    parser.add_argument(
-        "--input", type=str, required=True,
+        "--input",
+        type=str,
+        required=True,
         help="Path to input (h5ad file, SpatialData zarr dir, or Xenium Ranger dir)",
     )
     parser.add_argument("--modality", type=str, default="xenium", help="Modality name")
@@ -53,7 +52,9 @@ def main(argv: list[str] | None = None) -> None:
     modality_dims = {args.modality: data_tensor.shape[1]}
     dummy_mod = [m for m in ["scrna", "xenium"] if m != args.modality][0]
     # Find the last bias in the dummy decoder to get its output dim
-    decoder_keys = sorted(k for k in state_dict if k.startswith(f"decoders.{dummy_mod}.") and k.endswith(".bias"))
+    decoder_keys = sorted(
+        k for k in state_dict if k.startswith(f"decoders.{dummy_mod}.") and k.endswith(".bias")
+    )
     dummy_dim = state_dict[decoder_keys[-1]].shape[0]
     modality_dims[dummy_mod] = dummy_dim
 

@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.lines import Line2D
 
 from multitme.utils import configure_logging
 
@@ -23,10 +22,26 @@ matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 TAB20 = [
-    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
-    "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78",
-    "#98df8a", "#ff9896", "#c5b0d5", "#c49c94", "#f7b6d2", "#c7c7c7",
-    "#dbdb8d", "#9edae5",
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+    "#aec7e8",
+    "#ffbb78",
+    "#98df8a",
+    "#ff9896",
+    "#c5b0d5",
+    "#c49c94",
+    "#f7b6d2",
+    "#c7c7c7",
+    "#dbdb8d",
+    "#9edae5",
 ]
 
 
@@ -36,7 +51,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--input", type=str, required=True, help="Path to predictions h5ad")
     parser.add_argument("--probs", type=str, required=True, help="Path to pred_probs.npy")
     parser.add_argument("--latent", type=str, required=True, help="Path to latent.npy")
-    parser.add_argument("--output-dir", type=str, default="results/reports", help="Output directory")
+    parser.add_argument(
+        "--output-dir", type=str, default="results/reports", help="Output directory"
+    )
     args = parser.parse_args(argv)
 
     outdir = Path(args.output_dir)
@@ -46,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Loading data...")
     adata = sc.read_h5ad(args.input)
     probs = np.load(args.probs)
-    latent = np.load(args.latent)
+    np.load(args.latent)  # validate file exists/readable
 
     pred_types = adata.obs["predicted_type"].values.astype(str)
     coords = adata.obsm["spatial"]
@@ -67,18 +84,21 @@ def main(argv: list[str] | None = None) -> None:
 
     # ── Confidence analysis PDF ──────────────────────────────────────────
     logger.info("Generating confidence analysis PDF...")
-    _generate_confidence_pdf(outdir, pred_types, all_types, type_colors, max_probs,
-                             probs, norm_entropy)
+    _generate_confidence_pdf(
+        outdir, pred_types, all_types, type_colors, max_probs, probs, norm_entropy
+    )
 
     # ── Spatial plots PDF ────────────────────────────────────────────────
     logger.info("Generating spatial PDF...")
-    _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
-                          max_probs, norm_entropy, n_cells)
+    _generate_spatial_pdf(
+        outdir, pred_types, all_types, type_colors, coords, max_probs, norm_entropy, n_cells
+    )
 
     # ── Interactive choropleth ───────────────────────────────────────────
     logger.info("Generating interactive choropleth...")
-    _generate_choropleth(outdir, pred_types, all_types, type_colors, coords,
-                         max_probs, norm_entropy, n_cells)
+    _generate_choropleth(
+        outdir, pred_types, all_types, type_colors, coords, max_probs, norm_entropy, n_cells
+    )
 
     logger.info(f"Reports saved to {outdir}")
 
@@ -101,11 +121,15 @@ def _generate_summary_pdf(outdir, pred_types, all_types, type_colors, n_cells):
         ax.set_xlabel("Number of cells")
         ax.set_title("Predicted Cell Type Distribution", fontsize=13, fontweight="bold")
         ax.invert_yaxis()
-        for bar, t in zip(bars, sorted_types):
+        for bar, t in zip(bars, sorted_types, strict=False):
             pct = 100 * counts[t] / n_cells
-            ax.text(bar.get_width() + max(counts[sorted_types[0]] * 0.01, 50),
-                    bar.get_y() + bar.get_height() / 2,
-                    f"{counts[t]:,} ({pct:.1f}%)", va="center", fontsize=9)
+            ax.text(
+                bar.get_width() + max(counts[sorted_types[0]] * 0.01, 50),
+                bar.get_y() + bar.get_height() / 2,
+                f"{counts[t]:,} ({pct:.1f}%)",
+                va="center",
+                fontsize=9,
+            )
 
         # Pie chart
         ax = axes[1]
@@ -121,27 +145,42 @@ def _generate_summary_pdf(outdir, pred_types, all_types, type_colors, n_cells):
             labels_pie = top_types
             counts_pie = top_counts
             colors_pie = [type_colors[t] for t in top_types]
-        ax.pie(counts_pie, labels=labels_pie, colors=colors_pie,
-               autopct="%1.1f%%", startangle=90, textprops={"fontsize": 9})
+        ax.pie(
+            counts_pie,
+            labels=labels_pie,
+            colors=colors_pie,
+            autopct="%1.1f%%",
+            startangle=90,
+            textprops={"fontsize": 9},
+        )
         ax.set_title("Composition", fontsize=13, fontweight="bold")
 
-        fig.suptitle(f"MultiTME Cell Type Predictions ({n_cells:,} cells)",
-                     fontsize=15, fontweight="bold", y=1.02)
+        fig.suptitle(
+            f"MultiTME Cell Type Predictions ({n_cells:,} cells)",
+            fontsize=15,
+            fontweight="bold",
+            y=1.02,
+        )
         plt.tight_layout()
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
 
-def _generate_confidence_pdf(outdir, pred_types, all_types, type_colors, max_probs,
-                             probs, norm_entropy):
+def _generate_confidence_pdf(
+    outdir, pred_types, all_types, type_colors, max_probs, probs, norm_entropy
+):
     with PdfPages(outdir / "confidence_analysis.pdf") as pdf:
         # Page 1: Overall confidence distribution
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
         ax = axes[0]
         ax.hist(max_probs, bins=50, color="#4a90d9", edgecolor="white", linewidth=0.3)
-        ax.axvline(x=np.median(max_probs), color="red", linestyle="--",
-                   label=f"Median: {np.median(max_probs):.3f}")
+        ax.axvline(
+            x=np.median(max_probs),
+            color="red",
+            linestyle="--",
+            label=f"Median: {np.median(max_probs):.3f}",
+        )
         ax.axvline(x=0.5, color="orange", linestyle="--", alpha=0.7, label="0.5 threshold")
         ax.set_xlabel("Max prediction probability")
         ax.set_ylabel("Number of cells")
@@ -156,7 +195,7 @@ def _generate_confidence_pdf(outdir, pred_types, all_types, type_colors, max_pro
         ax.set_xticklabels([f"\u2265{t}" for t in thresholds])
         ax.set_ylabel("% of cells")
         ax.set_title("Cells Above Confidence Threshold", fontsize=13, fontweight="bold")
-        for i, (t, p) in enumerate(zip(thresholds, pcts)):
+        for i, (_t, p) in enumerate(zip(thresholds, pcts, strict=False)):
             ax.text(i, p + 1, f"{p:.1f}%", ha="center", fontsize=9)
 
         plt.tight_layout()
@@ -175,7 +214,7 @@ def _generate_confidence_pdf(outdir, pred_types, all_types, type_colors, max_pro
                 box_labels.append(f"{t}\n(n={mask.sum():,})")
 
         bp = ax.boxplot(box_data, vert=True, patch_artist=True, showfliers=False)
-        for patch, t in zip(bp["boxes"], sorted_by_count[:len(box_data)]):
+        for patch, t in zip(bp["boxes"], sorted_by_count[: len(box_data)], strict=False):
             patch.set_facecolor(type_colors[t])
             patch.set_alpha(0.7)
         ax.set_xticklabels(box_labels, fontsize=8, rotation=45, ha="right")
@@ -189,8 +228,12 @@ def _generate_confidence_pdf(outdir, pred_types, all_types, type_colors, max_pro
         # Page 3: Entropy distribution
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.hist(norm_entropy, bins=50, color="#e07b39", edgecolor="white", linewidth=0.3)
-        ax.axvline(x=np.median(norm_entropy), color="red", linestyle="--",
-                   label=f"Median: {np.median(norm_entropy):.3f}")
+        ax.axvline(
+            x=np.median(norm_entropy),
+            color="red",
+            linestyle="--",
+            label=f"Median: {np.median(norm_entropy):.3f}",
+        )
         ax.set_xlabel("Normalized entropy (0=certain, 1=uniform)")
         ax.set_ylabel("Number of cells")
         ax.set_title("Prediction Entropy Distribution", fontsize=13, fontweight="bold")
@@ -200,8 +243,9 @@ def _generate_confidence_pdf(outdir, pred_types, all_types, type_colors, max_pro
         plt.close(fig)
 
 
-def _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
-                          max_probs, norm_entropy, n_cells):
+def _generate_spatial_pdf(
+    outdir, pred_types, all_types, type_colors, coords, max_probs, norm_entropy, n_cells
+):
     with PdfPages(outdir / "spatial_plots.pdf") as pdf:
         if n_cells > 80000:
             idx = np.random.RandomState(42).choice(n_cells, 80000, replace=False)
@@ -219,13 +263,21 @@ def _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
             mask = pt == t
             if mask.sum() == 0:
                 continue
-            ax.scatter(xy[mask, 0], xy[mask, 1], s=0.3, c=type_colors[t],
-                       label=f"{t} ({mask.sum():,})", alpha=0.5, rasterized=True)
+            ax.scatter(
+                xy[mask, 0],
+                xy[mask, 1],
+                s=0.3,
+                c=type_colors[t],
+                label=f"{t} ({mask.sum():,})",
+                alpha=0.5,
+                rasterized=True,
+            )
         ax.set_aspect("equal")
         ax.invert_yaxis()
         ax.set_title("Predicted Cell Types (spatial)", fontsize=14, fontweight="bold")
-        ax.legend(markerscale=10, fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1),
-                  frameon=False)
+        ax.legend(
+            markerscale=10, fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1), frameon=False
+        )
         ax.set_xlabel("X (\u03bcm)")
         ax.set_ylabel("Y (\u03bcm)")
         plt.tight_layout()
@@ -235,8 +287,17 @@ def _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
         # Page 2: Spatial confidence
         fig, ax = plt.subplots(figsize=(14, 12))
         order = np.argsort(mp)
-        sc_plot = ax.scatter(xy[order, 0], xy[order, 1], s=0.3, c=mp[order],
-                             cmap="RdYlGn", vmin=0.3, vmax=1.0, alpha=0.6, rasterized=True)
+        sc_plot = ax.scatter(
+            xy[order, 0],
+            xy[order, 1],
+            s=0.3,
+            c=mp[order],
+            cmap="RdYlGn",
+            vmin=0.3,
+            vmax=1.0,
+            alpha=0.6,
+            rasterized=True,
+        )
         ax.set_aspect("equal")
         ax.invert_yaxis()
         ax.set_title("Prediction Confidence (spatial)", fontsize=14, fontweight="bold")
@@ -250,8 +311,17 @@ def _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
         # Page 3: Spatial entropy
         fig, ax = plt.subplots(figsize=(14, 12))
         order = np.argsort(-ne)
-        sc_plot = ax.scatter(xy[order, 0], xy[order, 1], s=0.3, c=ne[order],
-                             cmap="YlOrRd", vmin=0, vmax=0.5, alpha=0.6, rasterized=True)
+        sc_plot = ax.scatter(
+            xy[order, 0],
+            xy[order, 1],
+            s=0.3,
+            c=ne[order],
+            cmap="YlOrRd",
+            vmin=0,
+            vmax=0.5,
+            alpha=0.6,
+            rasterized=True,
+        )
         ax.set_aspect("equal")
         ax.invert_yaxis()
         ax.set_title("Prediction Entropy (spatial)", fontsize=14, fontweight="bold")
@@ -275,8 +345,9 @@ def _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
             mask = pt == t
             ax.scatter(xy[:, 0], xy[:, 1], s=0.1, c="#333333", alpha=0.1, rasterized=True)
             if mask.sum() > 0:
-                ax.scatter(xy[mask, 0], xy[mask, 1], s=0.4, c=type_colors[t],
-                           alpha=0.6, rasterized=True)
+                ax.scatter(
+                    xy[mask, 0], xy[mask, 1], s=0.4, c=type_colors[t], alpha=0.6, rasterized=True
+                )
             ax.set_aspect("equal")
             ax.invert_yaxis()
             ax.set_title(f"{t} (n={mask.sum():,})", fontsize=11, fontweight="bold")
@@ -290,8 +361,9 @@ def _generate_spatial_pdf(outdir, pred_types, all_types, type_colors, coords,
         plt.close(fig)
 
 
-def _generate_choropleth(outdir, pred_types, all_types, type_colors, coords,
-                         max_probs, norm_entropy, n_cells):
+def _generate_choropleth(
+    outdir, pred_types, all_types, type_colors, coords, max_probs, norm_entropy, n_cells
+):
     max_interactive = 100000
     if n_cells > max_interactive:
         idx = np.random.RandomState(42).choice(n_cells, max_interactive, replace=False)
@@ -313,8 +385,11 @@ def _generate_choropleth(outdir, pred_types, all_types, type_colors, coords,
         n = int(mask.sum())
         if n > 0:
             confs = np.array(mp_i)[mask]
-            type_stats[t] = {"n": n, "mean_conf": round(float(confs.mean()), 3),
-                             "med_conf": round(float(np.median(confs)), 3)}
+            type_stats[t] = {
+                "n": n,
+                "mean_conf": round(float(confs.mean()), 3),
+                "med_conf": round(float(np.median(confs)), 3),
+            }
         else:
             type_stats[t] = {"n": 0, "mean_conf": 0, "med_conf": 0}
 
@@ -326,8 +401,12 @@ def _generate_choropleth(outdir, pred_types, all_types, type_colors, coords,
         types_json=json.dumps(all_types),
         colors_json=json.dumps(type_colors),
         stats_json=json.dumps(type_stats),
-        xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
-        n_shown=len(idx), n_total=n_cells,
+        xmin=xmin,
+        xmax=xmax,
+        ymin=ymin,
+        ymax=ymax,
+        n_shown=len(idx),
+        n_total=n_cells,
     )
 
     html_path = outdir / "choropleth.html"
