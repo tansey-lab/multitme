@@ -63,7 +63,7 @@
         },
         "preprocess_method": {
           "type": "string",
-          "default": "clr",
+          "default": "log1p",
           "description": "Preprocessing method for count data.",
           "enum": ["clr", "log1p"]
         },

@@ -1,7 +1,7 @@
 data:
   scrna_path: data/scRNA_sample.h5ad
   xenium_path: data/xenium_sample.h5ad
-  preprocess_method: clr
+  preprocess_method: log1p
   pseudocount: 0.001
   clip_percentile: 99.5
   annotation_column: major_annotation

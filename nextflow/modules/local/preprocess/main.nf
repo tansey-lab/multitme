@@ -20,7 +20,7 @@ process PREPROCESS {
     multitme-preprocess \\
         data.scrna_path=${scrna} \\
         data.xenium_path=${xenium} \\
-        data.preprocess_method=${params.preprocess_method ?: 'clr'} \\
+        data.preprocess_method=${params.preprocess_method ?: 'log1p'} \\
         data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\
         ${args}

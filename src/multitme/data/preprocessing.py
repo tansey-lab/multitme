@@ -83,7 +83,9 @@ def preprocess(
         if is_sparse:
             data_csc = data.tocsc().astype(np.float32)
             caps = _sparse_column_percentile(data_csc, clip_percentile)  # (n_genes,)
-            col_max = np.asarray(data_csc.max(axis=0)).ravel().clip(min=1e-8)  # (n_genes,)
+            col_max = (
+                np.asarray(data_csc.max(axis=0).todense()).ravel().clip(min=1e-8)
+            )  # (n_genes,)
 
             data_csr = data_csc.tocsr()
             output = np.empty((n_cells, n_genes), dtype=np.float32)
