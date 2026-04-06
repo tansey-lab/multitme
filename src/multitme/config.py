@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
         "pseudocount": 1e-3,
         "clip_percentile": 99.5,
         "annotation_column": "major_annotation",
+        "scrna_max_cells": 100_000,
     },
     "model": {
         "n_latent": 20,

@@ -1,5 +1,47 @@
+import anndata
 import numpy as np
+import scanpy as sc
 from scipy import sparse
+
+
+def downsample_scrna(adata, cell_type_col, max_cells=100_000, seed=0):
+    """Downsample scRNA AnnData to at most ``max_cells`` with balanced cell-type representation.
+
+    Each cell type receives an equal quota of ``max_cells // n_cell_types`` cells.
+    If a cell type has fewer cells than the quota, all of its cells are kept.
+
+    Parameters
+    ----------
+    adata : AnnData
+        scRNA data with cell-type annotations in ``adata.obs[cell_type_col]``.
+    cell_type_col : str
+        Column in ``adata.obs`` containing cell-type labels.
+    max_cells : int
+        Target total number of cells after downsampling.
+    seed : int
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    AnnData
+        Downsampled (or unchanged) AnnData object.
+    """
+    if adata.n_obs <= max_cells:
+        return adata
+
+    rng = np.random.default_rng(seed)
+    cell_types = adata.obs[cell_type_col].values
+    unique_types = np.unique(cell_types)
+    per_type_quota = max_cells // len(unique_types)
+
+    selected = []
+    for ct in unique_types:
+        idx = np.where(cell_types == ct)[0]
+        n = min(per_type_quota, len(idx))
+        selected.append(rng.choice(idx, size=n, replace=False))
+
+    keep = np.sort(np.concatenate(selected))
+    return adata[keep]
 
 
 def preprocess(
@@ -28,35 +70,20 @@ def preprocess(
     np.ndarray
         Transformed expression matrix (float32).
     """
-    is_sparse = sparse.issparse(data)
-
     if method == "log1p":
-        if is_sparse:
-            data = data.tocsr().astype(np.float32)
-            lib_size = np.asarray(data.sum(axis=1)).ravel()  # (n_cells,)
-            np.clip(lib_size, 1e-8, None, out=lib_size)
-            # Scale each row in-place on stored values only; log1p(0)=0 so zeros stay zero
-            scale = target_sum / lib_size
-            data = data.multiply(scale[:, np.newaxis]).tocsr()
-            np.log1p(data.data, out=data.data)
-            return data.toarray()
-        else:
-            if data.dtype != np.float32:
-                data = data.astype(np.float32)
-            lib_size = data.sum(axis=1, keepdims=True)
-            np.clip(lib_size, 1e-8, None, out=lib_size)
-            data /= lib_size
-            data *= target_sum
-            np.log1p(data, out=data)
-            return data
+        adata = anndata.AnnData(X=data)
+        sc.pp.normalize_total(adata, target_sum=target_sum)
+        sc.pp.log1p(adata)
+        return adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray()
 
     elif method == "clr":
+        is_sparse = sparse.issparse(data)
         n_cells, n_genes = data.shape
 
         if is_sparse:
             data_csc = data.tocsc().astype(np.float32)
             caps = _sparse_column_percentile(data_csc, clip_percentile)  # (n_genes,)
-            col_max = np.asarray(data_csc.max(axis=0)).ravel().clip(1e-8)  # (n_genes,)
+            col_max = np.asarray(data_csc.max(axis=0)).ravel().clip(min=1e-8)  # (n_genes,)
 
             data_csr = data_csc.tocsr()
             output = np.empty((n_cells, n_genes), dtype=np.float32)

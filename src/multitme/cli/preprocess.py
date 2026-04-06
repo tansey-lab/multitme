@@ -11,6 +11,7 @@ import scanpy as sc
 
 from multitme.config import load_config
 from multitme.data import load_xenium_adata, preprocess
+from multitme.data.preprocessing import downsample_scrna
 from multitme.utils import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,12 @@ def main(argv: list[str] | None = None) -> None:
         logger.info(f"Loading scRNA data from {cfg.data.scrna_path}")
         adata = sc.read_h5ad(cfg.data.scrna_path)
         adata = adata[adata.X.sum(axis=1) > 0]
+        adata = downsample_scrna(
+            adata,
+            cell_type_col=cfg.data.annotation_column,
+            max_cells=cfg.data.scrna_max_cells,
+        )
+        logger.info(f"scRNA after downsampling: {adata.n_obs} cells")
         data = preprocess(
             adata.X,
             method=cfg.data.preprocess_method,

@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
 from multitme.config import load_config
-from multitme.data import load_xenium_adata, preprocess, pseudo_label_from_markers
+from multitme.data import pseudo_label_from_markers
 from multitme.model import CycleVAETrainer, CyclingDataset, MultiModalCycleVAE
 from multitme.utils import configure_logging, get_device, set_seed
 
@@ -39,15 +39,11 @@ def main(argv: list[str] | None = None) -> None:
     # Save config to output dir
     OmegaConf.save(cfg, outdir / "config.yaml")
 
-    # Load data
-    scrna = sc.read_h5ad(cfg.data.scrna_path)
-    xenium = load_xenium_adata(cfg.data.xenium_path)
-
-    scrna = scrna[scrna.X.sum(axis=1) > 0]
-    xenium = xenium[xenium.X.sum(axis=1) > 0]
-
-    scrna_data = preprocess(scrna.X, cfg.data.preprocess_method)
-    xenium_data = preprocess(xenium.X, cfg.data.preprocess_method)
+    # Load preprocessed data (output of cli/preprocess.py)
+    scrna = sc.read_h5ad(outdir / "scrna_filtered.h5ad")
+    xenium = sc.read_h5ad(outdir / "xenium_filtered.h5ad")
+    scrna_data = np.load(outdir / "scrna_preprocessed.npy")
+    xenium_data = np.load(outdir / "xenium_preprocessed.npy")
 
     # Common genes
     common_genes = np.intersect1d(scrna.var_names, xenium.var_names)
