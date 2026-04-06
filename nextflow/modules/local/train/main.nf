@@ -30,6 +30,7 @@ process TRAIN {
         --config ${config} \\
         data.scrna_path=${scrna} \\
         data.xenium_path=${xenium} \\
+        data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\
         ${args}
 

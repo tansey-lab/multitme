@@ -21,6 +21,7 @@ process PREPROCESS {
         data.scrna_path=${scrna} \\
         data.xenium_path=${xenium} \\
         data.preprocess_method=${params.preprocess_method ?: 'clr'} \\
+        data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\
         ${args}
 

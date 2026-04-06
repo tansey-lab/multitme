@@ -67,6 +67,11 @@
           "description": "Preprocessing method for count data.",
           "enum": ["clr", "log1p"]
         },
+        "annotation_column": {
+          "type": "string",
+          "default": "major_annotation",
+          "description": "Column in adata.obs containing cell type annotations."
+        },
         "n_latent": {
           "type": "integer",
           "default": 20,
