@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> None:
     # Load data
     adata = load_xenium_adata(args.input)
     adata = adata[adata.X.sum(axis=1) > 0]
-    data = preprocess(np.array(adata.X.todense()), method=args.preprocess_method)
+    data = preprocess(adata.X, method=args.preprocess_method)
     data_tensor = torch.tensor(data, dtype=torch.float32)
 
     # Reconstruct model from checkpoint — infer dummy modality dim from last decoder bias

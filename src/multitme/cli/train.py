@@ -46,8 +46,8 @@ def main(argv: list[str] | None = None) -> None:
     scrna = scrna[scrna.X.sum(axis=1) > 0]
     xenium = xenium[xenium.X.sum(axis=1) > 0]
 
-    scrna_data = preprocess(np.array(scrna.X.todense()), cfg.data.preprocess_method)
-    xenium_data = preprocess(np.array(xenium.X.todense()), cfg.data.preprocess_method)
+    scrna_data = preprocess(scrna.X, cfg.data.preprocess_method)
+    xenium_data = preprocess(xenium.X, cfg.data.preprocess_method)
 
     # Common genes
     common_genes = np.intersect1d(scrna.var_names, xenium.var_names)

@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> None:
         adata = sc.read_h5ad(cfg.data.scrna_path)
         adata = adata[adata.X.sum(axis=1) > 0]
         data = preprocess(
-            np.array(adata.X.todense()),
+            adata.X,
             method=cfg.data.preprocess_method,
             pseudocount=cfg.data.pseudocount,
             clip_percentile=cfg.data.clip_percentile,
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> None:
         adata = load_xenium_adata(cfg.data.xenium_path)
         adata = adata[adata.X.sum(axis=1) > 0]
         data = preprocess(
-            np.array(adata.X.todense()),
+            adata.X,
             method=cfg.data.preprocess_method,
             pseudocount=cfg.data.pseudocount,
             clip_percentile=cfg.data.clip_percentile,
