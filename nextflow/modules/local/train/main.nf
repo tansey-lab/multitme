@@ -15,7 +15,17 @@ process TRAIN {
 
     script:
     def args = task.ext.args ?: ''
+    def wandb_key = params.wandb_api_key ?: ''
     """
+    # Set wandb API key if provided
+    if [ -n "${wandb_key}" ]; then
+        export WANDB_API_KEY="${wandb_key}"
+    fi
+
+    # Use consistent run ID across retries so wandb resumes to same run
+    export WANDB_RUN_ID="${workflow.runName}_${meta.id}"
+    export WANDB_RESUME="allow"
+
     multitme-train \\
         --config ${config} \\
         data.scrna_path=${scrna} \\
