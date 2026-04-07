@@ -1,11 +1,13 @@
 name: multitme
 channels:
   - pytorch
+  - nvidia
   - conda-forge
   - defaults
 dependencies:
   - python>=3.12
-  - pytorch>=2.0
+  - pytorch::pytorch
+  - pytorch::pytorch-cuda=12.4
   - numpy>=1.24
   - scanpy>=1.9
   - anndata>=0.10
