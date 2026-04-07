@@ -1,6 +1,7 @@
 process TRAIN {
     tag "$meta.id"
     label 'process_gpu'
+    label 'process_high'
 
     container "${params.container_registry}/multitme:${params.container_version}"
 
