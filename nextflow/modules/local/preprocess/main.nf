@@ -18,8 +18,8 @@ process PREPROCESS {
     def args = task.ext.args ?: ''
     """
     multitme-preprocess \\
-        data.scrna_path=${scrna} \\
-        data.xenium_path=${xenium} \\
+        --scrna ${scrna} \\
+        --xenium ${xenium} \\
         data.preprocess_method=${params.preprocess_method ?: 'log1p'} \\
         data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\

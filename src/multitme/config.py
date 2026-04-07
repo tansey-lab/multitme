@@ -8,8 +8,6 @@ from omegaconf import DictConfig, OmegaConf
 
 DEFAULT_CONFIG = {
     "data": {
-        "scrna_path": None,
-        "xenium_path": None,
         "preprocess_method": "clr",
         "pseudocount": 1e-3,
         "clip_percentile": 99.5,
