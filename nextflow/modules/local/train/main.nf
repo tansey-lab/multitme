@@ -8,6 +8,8 @@ process TRAIN {
     tuple val(meta), path(config)
     tuple val(meta), path(scrna)
     tuple val(meta), path(xenium)
+    tuple val(meta), path(scrna_preprocessed)
+    tuple val(meta), path(xenium_preprocessed)
 
     output:
     tuple val(meta), path("${meta.id}_checkpoint.pt"), emit: checkpoint
@@ -28,8 +30,10 @@ process TRAIN {
 
     multitme-train \\
         --config ${config} \\
-        data.scrna_path=${scrna} \\
-        data.xenium_path=${xenium} \\
+        --scrna ${scrna} \\
+        --xenium ${xenium} \\
+        --scrna-preprocessed ${scrna_preprocessed} \\
+        --xenium-preprocessed ${xenium_preprocessed} \\
         data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\
         ${args}

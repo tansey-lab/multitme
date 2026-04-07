@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description="Train MultiModal CycleVAE")
+    parser.add_argument("--scrna", type=str, required=True, help="Path to scRNA h5ad file")
+    parser.add_argument("--xenium", type=str, required=True, help="Path to Xenium h5ad file")
+    parser.add_argument(
+        "--scrna-preprocessed", type=str, required=True, help="Path to scRNA preprocessed .npy"
+    )
+    parser.add_argument(
+        "--xenium-preprocessed", type=str, required=True, help="Path to Xenium preprocessed .npy"
+    )
     parser.add_argument("--config", type=str, required=True, help="YAML config file")
     parser.add_argument(
         "--resume-from", type=str, default=None, help="Path to checkpoint.pt to resume from"
@@ -40,10 +48,10 @@ def main(argv: list[str] | None = None) -> None:
     OmegaConf.save(cfg, outdir / "config.yaml")
 
     # Load preprocessed data (output of cli/preprocess.py)
-    scrna = sc.read_h5ad(outdir / "scrna_filtered.h5ad")
-    xenium = sc.read_h5ad(outdir / "xenium_filtered.h5ad")
-    scrna_data = np.load(outdir / "scrna_preprocessed.npy")
-    xenium_data = np.load(outdir / "xenium_preprocessed.npy")
+    scrna = sc.read_h5ad(args.scrna)
+    xenium = sc.read_h5ad(args.xenium)
+    scrna_data = np.load(args.scrna_preprocessed)
+    xenium_data = np.load(args.xenium_preprocessed)
 
     # Common genes
     common_genes = np.intersect1d(scrna.var_names, xenium.var_names)
