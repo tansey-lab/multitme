@@ -12,6 +12,7 @@ process PREPROCESS {
     tuple val(meta), path("${meta.id}_xenium_preprocessed.npy"), emit: xenium_data
     tuple val(meta), path("${meta.id}_scrna_filtered.h5ad"),     emit: scrna_adata
     tuple val(meta), path("${meta.id}_xenium_filtered.h5ad"),    emit: xenium_adata
+    tuple val(meta), path("${meta.id}_scrna_celltype_counts.json"), emit: celltype_counts
     path "versions.yml",                                         emit: versions
 
     script:
@@ -30,6 +31,7 @@ process PREPROCESS {
     mv xenium_preprocessed.npy ${meta.id}_xenium_preprocessed.npy
     mv scrna_filtered.h5ad ${meta.id}_scrna_filtered.h5ad
     mv xenium_filtered.h5ad ${meta.id}_xenium_filtered.h5ad
+    mv scrna_celltype_counts.json ${meta.id}_scrna_celltype_counts.json
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

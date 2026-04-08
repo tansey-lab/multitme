@@ -6,6 +6,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 NF_DIR="$PROJECT_DIR/nextflow"
 
+# Local venv so multitme-* CLIs are on PATH (non-container runs)
+_VENV="${MULTITME_VENV:-$PROJECT_DIR/.venv}"
+if [[ -f "$_VENV/bin/activate" ]]; then
+  # shellcheck source=/dev/null
+  source "$_VENV/bin/activate"
+  echo "Using virtualenv: $_VENV"
+elif [[ -f "$PROJECT_DIR/venv/bin/activate" ]]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_DIR/venv/bin/activate"
+  echo "Using virtualenv: $PROJECT_DIR/venv"
+fi
+
 # Create a test samplesheet pointing at test_data
 SAMPLESHEET=$(mktemp /tmp/multitme_test_samplesheet_XXXXXX).csv
 cat > "$SAMPLESHEET" <<EOF
@@ -18,11 +30,17 @@ echo "Samplesheet: $SAMPLESHEET"
 cat "$SAMPLESHEET"
 echo ""
 
+# Keep training/infer within typical laptop RAM (override with MULTITME_MAX_MEMORY)
+MAX_MEM="${MULTITME_MAX_MEMORY:-32.GB}"
+echo "max_memory cap: $MAX_MEM (set MULTITME_MAX_MEMORY to override)"
+echo ""
+
 nextflow run "$NF_DIR" \
     --input "$SAMPLESHEET" \
     --outdir "$PROJECT_DIR/test_output" \
     --n_epochs 2 \
     --skip_report false \
+    --max_memory "$MAX_MEM" \
     -work-dir "$PROJECT_DIR/test_work" \
     "$@"
 
