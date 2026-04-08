@@ -14,6 +14,7 @@ import numpy as np
 import scanpy as sc
 from matplotlib.backends.backend_pdf import PdfPages
 
+from multitme.report.html_dashboard import compute_gene_overlap_stats, write_html_dashboard
 from multitme.utils import configure_logging
 
 warnings.filterwarnings("ignore")
@@ -54,6 +55,36 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--output-dir", type=str, default="results/reports", help="Output directory"
     )
+    parser.add_argument(
+        "--scrna",
+        type=str,
+        default=None,
+        help="Filtered scRNA h5ad (preprocess output) for reference UMAP",
+    )
+    parser.add_argument(
+        "--annotation-column",
+        type=str,
+        default="major_annotation",
+        help="obs column with cell-type labels in scRNA data",
+    )
+    parser.add_argument(
+        "--xenium",
+        type=str,
+        default=None,
+        help="Filtered Xenium h5ad (preprocess output) for gene overlap",
+    )
+    parser.add_argument(
+        "--celltype-counts",
+        type=str,
+        default=None,
+        help="scrna_celltype_counts.json from preprocess (input annotation breakdown)",
+    )
+    parser.add_argument(
+        "--sample-prefix",
+        type=str,
+        default="",
+        help="Prefix for linked PDF/HTML filenames in report.html (e.g. 'mysample_')",
+    )
     args = parser.parse_args(argv)
 
     outdir = Path(args.output_dir)
@@ -63,9 +94,13 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Loading data...")
     adata = sc.read_h5ad(args.input)
     probs = np.load(args.probs)
-    np.load(args.latent)  # validate file exists/readable
+    latent = np.load(args.latent)
 
     pred_types = adata.obs["predicted_type"].values.astype(str)
+    if latent.shape[0] != len(pred_types):
+        raise ValueError(
+            f"latent rows ({latent.shape[0]}) != cells in predictions ({len(pred_types)})"
+        )
     coords = adata.obsm["spatial"]
     max_probs = probs.max(axis=1)
     n_cells = len(pred_types)
@@ -77,6 +112,8 @@ def main(argv: list[str] | None = None) -> None:
     entropy = -np.sum(probs * np.log(probs + 1e-10), axis=1)
     max_entropy = np.log(probs.shape[1])
     norm_entropy = entropy / max_entropy
+
+    total_transcripts = _total_transcripts_per_cell(adata)
 
     # ── Cell type summary PDF ────────────────────────────────────────────
     logger.info("Generating cell type summary PDF...")
@@ -94,13 +131,98 @@ def main(argv: list[str] | None = None) -> None:
         outdir, pred_types, all_types, type_colors, coords, max_probs, norm_entropy, n_cells
     )
 
+    # ── Transcripts vs classification PDF ───────────────────────────────
+    logger.info("Generating transcript vs classification PDF...")
+    _generate_transcript_classification_pdf(
+        outdir, pred_types, all_types, type_colors, total_transcripts
+    )
+
     # ── Interactive choropleth ───────────────────────────────────────────
     logger.info("Generating interactive choropleth...")
     _generate_choropleth(
         outdir, pred_types, all_types, type_colors, coords, max_probs, norm_entropy, n_cells
     )
 
+    # ── UMAP PDFs (latent / reference annotations) ───────────────────────
+    logger.info("Generating Xenium UMAP PDF (latent space)...")
+    _generate_xenium_umap_pdf(outdir, latent, pred_types, all_types, type_colors)
+
+    if args.scrna:
+        logger.info("Generating scRNA UMAP PDF...")
+        _generate_scrna_umap_pdf(
+            outdir, Path(args.scrna), args.annotation_column, max_cells_umap=50_000
+        )
+    else:
+        logger.info("No --scrna path; skipping scRNA UMAP PDF")
+
+    gene_overlap = None
+    if args.scrna and args.xenium:
+        gene_overlap = compute_gene_overlap_stats(Path(args.scrna), Path(args.xenium))
+
+    logger.info("Generating HTML dashboard...")
+    write_html_dashboard(
+        outdir,
+        sample_prefix=args.sample_prefix,
+        celltype_counts_path=Path(args.celltype_counts) if args.celltype_counts else None,
+        gene_overlap=gene_overlap,
+        pred_types=pred_types,
+        all_types=all_types,
+        type_colors=type_colors,
+        coords=coords,
+        max_probs=max_probs,
+        norm_entropy=norm_entropy,
+        n_cells=n_cells,
+        total_transcripts_per_cell=total_transcripts,
+    )
+
+    if not (outdir / "gene_overlap_common_genes.txt").exists():
+        (outdir / "gene_overlap_common_genes.txt").write_text(
+            "# Gene overlap not computed (missing --scrna/--xenium).\n", encoding="utf-8"
+        )
+
     logger.info(f"Reports saved to {outdir}")
+
+
+def _total_transcripts_per_cell(adata) -> np.ndarray:
+    """Sum of matrix values per cell (total counts / transcripts in the Xenium layer)."""
+    s = adata.X.sum(axis=1)
+    return np.asarray(s, dtype=np.float64).ravel()
+
+
+def _generate_transcript_classification_pdf(
+    outdir, pred_types, all_types, type_colors, total_transcripts: np.ndarray
+) -> None:
+    """Box plot: predicted cell type vs log10(total counts + 1)."""
+    sorted_types = sorted(all_types, key=lambda t: (pred_types == t).sum(), reverse=True)
+    data = []
+    labels = []
+    colors = []
+    for t in sorted_types:
+        mask = pred_types == t
+        if mask.sum() == 0:
+            continue
+        data.append(np.log10(total_transcripts[mask] + 1.0))
+        labels.append(f"{t}\n(n={mask.sum():,})")
+        colors.append(type_colors[t])
+
+    if not data:
+        return
+
+    with PdfPages(outdir / "transcript_vs_classification.pdf") as pdf:
+        fig_h = max(6.0, 0.35 * len(labels))
+        fig, ax = plt.subplots(figsize=(10, fig_h))
+        bp = ax.boxplot(data, vert=False, patch_artist=True, showfliers=False)
+        ax.set_yticks(np.arange(1, len(labels) + 1))
+        ax.set_yticklabels(labels, fontsize=9)
+        for patch, c in zip(bp["boxes"], colors, strict=False):
+            patch.set_facecolor(c)
+            patch.set_alpha(0.75)
+        ax.set_xlabel("log10(total counts per cell + 1)")
+        ax.set_title("Xenium: total transcripts per cell vs predicted cell type")
+        ax.grid(axis="x", alpha=0.3)
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
 
 
 def _generate_summary_pdf(outdir, pred_types, all_types, type_colors, n_cells):
@@ -356,6 +478,176 @@ def _generate_spatial_pdf(
         for i in range(n_panels, len(axes)):
             axes[i].set_visible(False)
         fig.suptitle("Per-Type Spatial Distribution", fontsize=15, fontweight="bold")
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches="tight", dpi=150)
+        plt.close(fig)
+
+
+def _generate_xenium_umap_pdf(
+    outdir, latent, pred_types, all_types, type_colors, max_points: int = 80_000
+) -> None:
+    """UMAP on model latent, colored by predicted cell type."""
+    from umap import UMAP
+
+    rng = np.random.default_rng(42)
+    n = len(pred_types)
+    if n < 5:
+        logger.warning("Xenium UMAP: fewer than 5 cells (%d); writing placeholder PDF", n)
+        with PdfPages(outdir / "xenium_umap.pdf") as pdf:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.text(
+                0.5,
+                0.5,
+                f"UMAP not computed: need at least 5 cells (got {n}).",
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
+            ax.axis("off")
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+        return
+    if n > max_points:
+        idx = rng.choice(n, max_points, replace=False)
+        latent = latent[idx]
+        pred_types = pred_types[idx]
+    n = len(pred_types)
+
+    n_neighbors = min(15, max(2, latent.shape[0] - 1))
+    emb = UMAP(
+        n_components=2,
+        random_state=42,
+        min_dist=0.3,
+        n_neighbors=n_neighbors,
+    ).fit_transform(latent)
+
+    with PdfPages(outdir / "xenium_umap.pdf") as pdf:
+        fig, ax = plt.subplots(figsize=(12, 10))
+        for t in all_types:
+            mask = pred_types == t
+            if mask.sum() == 0:
+                continue
+            ax.scatter(
+                emb[mask, 0],
+                emb[mask, 1],
+                s=0.6,
+                c=type_colors[t],
+                label=f"{t} ({mask.sum():,})",
+                alpha=0.65,
+                rasterized=True,
+            )
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+        ax.set_title(
+            "Xenium — UMAP of model latent (colored by predicted cell type)",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax.legend(
+            markerscale=10,
+            fontsize=7,
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1),
+            frameon=False,
+        )
+        fig.suptitle(f"{n:,} cells shown", fontsize=11, y=1.02)
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches="tight", dpi=150)
+        plt.close(fig)
+
+
+def _generate_scrna_umap_pdf(
+    outdir, scrna_path: Path, annotation_col: str, max_cells_umap: int = 50_000
+) -> None:
+    """UMAP on expression (or precomputed), colored by reference annotations."""
+    adata = sc.read_h5ad(scrna_path)
+    if annotation_col not in adata.obs:
+        logger.warning(
+            "Column %r not found in scRNA obs; writing placeholder scRNA UMAP PDF", annotation_col
+        )
+        with PdfPages(outdir / "scrna_umap.pdf") as pdf:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.text(
+                0.5,
+                0.5,
+                f"scRNA UMAP not computed: obs column {annotation_col!r} not found.",
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
+            ax.axis("off")
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+        return
+
+    labels = adata.obs[annotation_col].astype(str).values
+    unique_types = sorted(set(labels))
+    scrna_colors = {t: TAB20[i % len(TAB20)] for i, t in enumerate(unique_types)}
+
+    if "X_umap" in adata.obsm:
+        emb = np.asarray(adata.obsm["X_umap"])
+        plot_labels = labels
+        logger.info("Using precomputed obsm['X_umap'] for scRNA UMAP")
+    else:
+        rng = np.random.default_rng(42)
+        n_obs = adata.n_obs
+        if n_obs > max_cells_umap:
+            idx = np.sort(rng.choice(n_obs, max_cells_umap, replace=False))
+            adata = adata[idx].copy()
+            labels = adata.obs[annotation_col].astype(str).values
+            unique_types = sorted(set(labels))
+            scrna_colors = {t: TAB20[i % len(TAB20)] for i, t in enumerate(unique_types)}
+            logger.info(
+                "Subsampled scRNA to %d cells for UMAP computation",
+                max_cells_umap,
+            )
+
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        n_top = max(3, min(2000, adata.n_vars - 1))
+        sc.pp.highly_variable_genes(adata, n_top_genes=n_top, subset=True)
+        sc.pp.scale(adata, max_value=10)
+        n_pcs = min(50, adata.n_obs - 1, adata.n_vars - 1)
+        n_pcs = max(2, n_pcs)
+        sc.tl.pca(adata, n_comps=n_pcs)
+        n_neighbors = min(15, max(2, adata.n_obs - 1))
+        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+        sc.tl.umap(adata)
+        emb = np.asarray(adata.obsm["X_umap"])
+        plot_labels = adata.obs[annotation_col].astype(str).values
+
+    with PdfPages(outdir / "scrna_umap.pdf") as pdf:
+        fig, ax = plt.subplots(figsize=(12, 10))
+        for t in unique_types:
+            mask = plot_labels == t
+            if mask.sum() == 0:
+                continue
+            ax.scatter(
+                emb[mask, 0],
+                emb[mask, 1],
+                s=2.0,
+                c=scrna_colors[t],
+                label=f"{t} ({mask.sum():,})",
+                alpha=0.65,
+                rasterized=True,
+            )
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+        ax.set_title(
+            f"scRNA — UMAP (colored by {annotation_col})",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax.legend(
+            markerscale=6,
+            fontsize=7,
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1),
+            frameon=False,
+        )
+        fig.suptitle(f"{len(plot_labels):,} cells shown", fontsize=11, y=1.02)
         plt.tight_layout()
         pdf.savefig(fig, bbox_inches="tight", dpi=150)
         plt.close(fig)

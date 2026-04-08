@@ -69,11 +69,14 @@ workflow MULTITME {
     // MODULE: Generate reports (optional)
     //
     if (!params.skip_report) {
-        REPORT (
-            INFER.out.predictions,
-            INFER.out.probs,
-            INFER.out.latent,
-        )
+        ch_report = INFER.out.predictions
+            .join(INFER.out.probs)
+            .join(INFER.out.latent)
+            .join(PREPROCESS.out.scrna_adata)
+            .join(PREPROCESS.out.xenium_adata)
+            .join(PREPROCESS.out.celltype_counts)
+
+        REPORT ( ch_report )
         ch_versions = ch_versions.mix(REPORT.out.versions)
     }
 
