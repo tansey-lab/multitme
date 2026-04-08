@@ -159,11 +159,18 @@ def main(argv: list[str] | None = None) -> None:
     if args.scrna and args.xenium:
         gene_overlap = compute_gene_overlap_stats(Path(args.scrna), Path(args.xenium))
 
+    # Build cell-type counts: prefer explicit JSON, fall back to counting from scRNA h5ad
+    celltype_counts = None
+    if args.celltype_counts:
+        celltype_counts = Path(args.celltype_counts)
+    elif args.scrna:
+        celltype_counts = _celltype_counts_from_scrna(Path(args.scrna), args.annotation_column)
+
     logger.info("Generating HTML dashboard...")
     write_html_dashboard(
         outdir,
         sample_prefix=args.sample_prefix,
-        celltype_counts_path=Path(args.celltype_counts) if args.celltype_counts else None,
+        celltype_counts=celltype_counts,
         gene_overlap=gene_overlap,
         pred_types=pred_types,
         all_types=all_types,
@@ -181,6 +188,28 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     logger.info(f"Reports saved to {outdir}")
+
+
+def _celltype_counts_from_scrna(scrna_path: Path, annotation_column: str) -> dict:
+    """Compute per-cell-type counts directly from the filtered scRNA h5ad."""
+    s = sc.read_h5ad(scrna_path)
+    if annotation_column not in s.obs.columns:
+        logger.warning(
+            "annotation_column %r not found in scRNA obs; skipping counts", annotation_column
+        )
+        return {}
+    counts = s.obs[annotation_column].value_counts()
+    per = [
+        {"cell_type": ct, "n_before": int(n), "n_after": int(n)}
+        for ct, n in counts.sort_values(ascending=False).items()
+    ]
+    return {
+        "annotation_column": annotation_column,
+        "downsampled": False,
+        "total_before": int(counts.sum()),
+        "total_after": int(counts.sum()),
+        "per_cell_type": per,
+    }
 
 
 def _total_transcripts_per_cell(adata) -> np.ndarray:

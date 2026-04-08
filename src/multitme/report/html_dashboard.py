@@ -6,12 +6,14 @@ import base64
 import io
 import json
 import logging
+import re
 from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
+import plotly.io as pio
 import scanpy as sc
 from plotly.subplots import make_subplots
 
@@ -43,7 +45,7 @@ def write_html_dashboard(
     outdir: Path,
     *,
     sample_prefix: str,
-    celltype_counts_path: Path | None,
+    celltype_counts: Path | dict | None,
     gene_overlap: dict[str, int | list[str]] | None,
     pred_types: np.ndarray,
     all_types: list[str],
@@ -57,7 +59,10 @@ def write_html_dashboard(
     """Write ``report.html`` with interactive Plotly figures and asset links."""
     sections: list[str] = []
 
-    plotly_cdn = '<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>'
+    _cdn_probe = pio.to_html(go.Figure(), include_plotlyjs="cdn", full_html=False)
+    _cdn_match = re.search(r'src="(https://cdn\.plot\.ly/plotly-[^"]+)"', _cdn_probe)
+    _cdn_url = _cdn_match.group(1) if _cdn_match else "https://cdn.plot.ly/plotly-latest.min.js"
+    plotly_cdn = f'<script src="{_cdn_url}" charset="utf-8"></script>'
 
     css = """
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -87,7 +92,6 @@ def write_html_dashboard(
       <a href="#transcripts">Transcripts vs type</a>
       <a href="#confidence">Confidence</a>
       <a href="#spatial">Spatial</a>
-      <a href="#assets">PDFs & choropleth</a>
     </nav>
     """
 
@@ -100,7 +104,7 @@ def write_html_dashboard(
         return f'<div class="card">{block}</div>'
 
     # ── Input scRNA annotations ─────────────────────────────────────────
-    input_section = _section_input_scrna(celltype_counts_path)
+    input_section = _section_input_scrna(celltype_counts)
     if input_section:
         sections.append(f'<h2 id="input-scrna">Input scRNA annotations</h2>{input_section}')
 
@@ -128,16 +132,17 @@ def write_html_dashboard(
         )
 
     # ── Confidence ─────────────────────────────────────────────────────
-    fig_conf = _fig_confidence(max_probs, norm_entropy, pred_types, all_types, type_colors)
-    sections.append('<h2 id="confidence">Prediction confidence</h2>' + plotly_block(fig_conf))
+    figs_conf = _fig_confidence(max_probs, norm_entropy, pred_types, all_types, type_colors)
+    sections.append(
+        '<h2 id="confidence">Prediction confidence</h2>'
+        + "".join(plotly_block(f) for f in figs_conf)
+    )
 
     # ── Spatial ────────────────────────────────────────────────────────
-    fig_spatial = _fig_spatial(coords, pred_types, all_types, type_colors, max_probs, norm_entropy)
-    sections.append('<h2 id="spatial">Spatial (Xenium)</h2>' + plotly_block(fig_spatial))
-
-    # ── Links to PDFs / choropleth ─────────────────────────────────────
-    assets = _section_asset_links(sample_prefix)
-    sections.append('<h2 id="assets">PDF exports & interactive choropleth</h2>' + assets)
+    figs_spatial = _fig_spatial(coords, pred_types, all_types, type_colors, max_probs, norm_entropy)
+    sections.append(
+        '<h2 id="spatial">Spatial (Xenium)</h2>' + "".join(plotly_block(f) for f in figs_spatial)
+    )
 
     title = f"{sample_prefix.rstrip('_')} — MultiTME report" if sample_prefix else "MultiTME report"
     html = f"""<!DOCTYPE html>
@@ -172,13 +177,22 @@ def write_html_dashboard(
         logger.info("Wrote %s", genes_txt)
 
 
-def _section_input_scrna(celltype_counts_path: Path | None) -> str:
-    if not celltype_counts_path or not Path(celltype_counts_path).is_file():
+def _section_input_scrna(celltype_counts: Path | dict | None) -> str:
+    if celltype_counts is None:
         return (
-            '<div class="card"><p class="muted">No scrna_celltype_counts.json provided; '
+            '<div class="card"><p class="muted">No scRNA cell-type counts available; '
             "skipping input annotation breakdown.</p></div>"
         )
-    data = json.loads(Path(celltype_counts_path).read_text(encoding="utf-8"))
+    if isinstance(celltype_counts, dict):
+        data = celltype_counts
+    else:
+        p = Path(celltype_counts)
+        if not p.is_file():
+            return (
+                '<div class="card"><p class="muted">No scrna_celltype_counts.json provided; '
+                "skipping input annotation breakdown.</p></div>"
+            )
+        data = json.loads(p.read_text(encoding="utf-8"))
     per = data.get("per_cell_type") or []
     if not per:
         return '<div class="card"><p class="muted">Empty cell-type table.</p></div>'
@@ -367,91 +381,87 @@ def _fig_confidence(
     pred_types: np.ndarray,
     all_types: list[str],
     type_colors: dict[str, str],
-) -> go.Figure:
-    fig = make_subplots(
-        rows=2,
-        cols=2,
-        subplot_titles=(
-            "Max probability (all cells)",
-            "Cells above threshold",
-            "Confidence by predicted type",
-            "Normalized entropy",
-        ),
-        vertical_spacing=0.12,
-        horizontal_spacing=0.1,
-    )
-    fig.add_trace(
-        go.Histogram(x=max_probs, nbinsx=50, marker_color="#4a90d9", name=""),
-        row=1,
-        col=1,
-    )
+) -> list[go.Figure]:
+    """Return four full-width figures to stack vertically."""
     med = float(np.median(max_probs))
-    fig.add_vline(
-        x=med,
-        line_dash="dash",
-        line_color="red",
-        annotation_text=f"median {med:.3f}",
-        row=1,
-        col=1,
-    )
-    fig.add_vline(x=0.5, line_dash="dash", line_color="orange", row=1, col=1)
 
+    # ── Max probability histogram ────────────────────────────────────────
+    fig_hist = go.Figure(go.Histogram(x=max_probs, nbinsx=50, marker_color="#4a90d9", name=""))
+    fig_hist.add_vline(
+        x=med, line_dash="dash", line_color="red", annotation_text=f"median {med:.3f}"
+    )
+    fig_hist.add_vline(x=0.5, line_dash="dash", line_color="orange", annotation_text="0.5")
+    fig_hist.update_layout(
+        title_text="Max probability (all cells)",
+        xaxis_title="Max probability",
+        yaxis_title="Cells",
+        height=400,
+        showlegend=False,
+    )
+
+    # ── Cells above threshold bar ────────────────────────────────────────
     thresholds = [0.3, 0.5, 0.7, 0.8, 0.9, 0.95]
     pcts = [100 * float((max_probs >= t).sum()) / len(max_probs) for t in thresholds]
-    fig.add_trace(
+    fig_thresh = go.Figure(
         go.Bar(
             x=[f"≥{t}" for t in thresholds],
             y=pcts,
             marker_color="#4a90d9",
-            name="",
             text=[f"{p:.1f}%" for p in pcts],
             textposition="outside",
-        ),
-        row=1,
-        col=2,
+        )
+    )
+    fig_thresh.update_layout(
+        title_text="Cells above confidence threshold",
+        xaxis_title="Threshold",
+        yaxis_title="% of cells",
+        height=400,
+        showlegend=False,
     )
 
+    # ── Confidence by predicted type box plot ────────────────────────────
     sorted_by_count = sorted(all_types, key=lambda t: (pred_types == t).sum(), reverse=True)
+    fig_box = go.Figure()
     for t in sorted_by_count:
         mask = pred_types == t
         if mask.sum() == 0:
             continue
-        fig.add_trace(
+        fig_box.add_trace(
             go.Box(
                 y=max_probs[mask],
                 name=t,
                 marker_color=type_colors[t],
                 boxmean=True,
                 showlegend=False,
-            ),
-            row=2,
-            col=1,
+            )
         )
-
-    fig.add_trace(
-        go.Histogram(x=norm_entropy, nbinsx=50, marker_color="#e07b39", name=""),
-        row=2,
-        col=2,
+    fig_box.update_layout(
+        title_text="Confidence by predicted type",
+        xaxis_title="Predicted type",
+        yaxis_title="Max probability",
+        height=max(500, 28 * len(sorted_by_count)),
+        showlegend=False,
+        xaxis_tickangle=-40,
+        margin=dict(b=140),
     )
-    fig.add_vline(
+
+    # ── Normalized entropy histogram ─────────────────────────────────────
+    fig_ent = go.Figure(go.Histogram(x=norm_entropy, nbinsx=50, marker_color="#e07b39", name=""))
+    fig_ent.add_vline(
         x=float(np.median(norm_entropy)),
         line_dash="dash",
         line_color="red",
-        annotation_text="median",
-        row=2,
-        col=2,
+        annotation_text=f"median {float(np.median(norm_entropy)):.3f}",
+    )
+    fig_ent.update_layout(
+        title_text="Normalized entropy",
+        xaxis_title="Normalized entropy",
+        yaxis_title="Cells",
+        height=400,
+        showlegend=False,
     )
 
-    fig.update_xaxes(title_text="Max probability", row=1, col=1)
-    fig.update_yaxes(title_text="Cells", row=1, col=1)
-    fig.update_yaxes(title_text="% of cells", row=1, col=2)
-    fig.update_xaxes(title_text="Predicted type", row=2, col=1)
-    fig.update_yaxes(title_text="Max probability", row=2, col=1)
-    fig.update_xaxes(title_text="Normalized entropy", row=2, col=2)
-    fig.update_yaxes(title_text="Cells", row=2, col=2)
-
-    fig.update_layout(height=780, showlegend=False, title_text="Confidence analysis")
-    return fig
+    return [fig_hist, fig_thresh, fig_box, fig_ent]
 
 
 def _fig_spatial(
@@ -461,7 +471,8 @@ def _fig_spatial(
     type_colors: dict[str, str],
     max_probs: np.ndarray,
     norm_entropy: np.ndarray,
-) -> go.Figure:
+) -> list[go.Figure]:
+    """Return three full-width figures (cell type, confidence, entropy) to stack vertically."""
     n_cells = len(pred_types)
     max_pts = 80_000
     if n_cells > max_pts:
@@ -473,76 +484,94 @@ def _fig_spatial(
     mp = max_probs[idx]
     ne = norm_entropy[idx]
 
-    fig = make_subplots(
-        rows=1,
-        cols=3,
-        subplot_titles=("Predicted type", "Confidence", "Entropy"),
-        horizontal_spacing=0.04,
-    )
-    for _, t in enumerate(all_types):
+    marker_sizes = [1, 2, 3, 4, 5, 6, 8, 10]
+    default_size = 2
+
+    def _size_slider() -> dict:
+        return dict(
+            active=marker_sizes.index(default_size),
+            currentvalue=dict(prefix="Marker size: ", visible=True, xanchor="left"),
+            pad=dict(t=40),
+            steps=[
+                dict(label=str(s), method="restyle", args=[{"marker.size": s}])
+                for s in marker_sizes
+            ],
+        )
+
+    def _base_layout(title: str) -> dict:
+        return dict(
+            title_text=title,
+            height=750,
+            xaxis_title="x (µm)",
+            yaxis_title="y (µm)",
+            yaxis_autorange="reversed",
+            sliders=[_size_slider()],
+            margin=dict(b=80),
+        )
+
+    # ── Predicted type ───────────────────────────────────────────────────
+    fig_type = go.Figure()
+    for t in all_types:
         mask = pt == t
         if mask.sum() == 0:
             continue
-        fig.add_trace(
+        fig_type.add_trace(
             go.Scattergl(
                 x=xy[mask, 0],
                 y=xy[mask, 1],
                 mode="markers",
-                marker=dict(size=2, color=type_colors[t], opacity=0.45),
+                marker=dict(size=default_size, color=type_colors[t], opacity=0.45),
                 name=t,
-                legendgroup=t,
-                showlegend=True,
-            ),
-            row=1,
-            col=1,
+            )
         )
+    fig_type.update_layout(
+        **_base_layout(f"Predicted cell type ({len(idx):,} of {n_cells:,} cells)"),
+        legend=dict(orientation="v", yanchor="middle", y=0.5, x=1.01),
+    )
 
+    # ── Confidence ───────────────────────────────────────────────────────
     order = np.argsort(mp)
-    fig.add_trace(
+    fig_conf = go.Figure(
         go.Scattergl(
             x=xy[order, 0],
             y=xy[order, 1],
             mode="markers",
             marker=dict(
-                size=2, color=mp[order], colorscale="RdYlGn", cmin=0.3, cmax=1.0, opacity=0.55
+                size=default_size,
+                color=mp[order],
+                colorscale="RdYlGn",
+                cmin=0.3,
+                cmax=1.0,
+                opacity=0.55,
+                colorbar=dict(title="Max prob"),
             ),
-            name="conf",
             showlegend=False,
-        ),
-        row=1,
-        col=2,
+        )
     )
+    fig_conf.update_layout(**_base_layout("Confidence (max probability)"))
 
+    # ── Entropy ──────────────────────────────────────────────────────────
     order_e = np.argsort(-ne)
-    fig.add_trace(
+    fig_ent = go.Figure(
         go.Scattergl(
             x=xy[order_e, 0],
             y=xy[order_e, 1],
             mode="markers",
             marker=dict(
-                size=2, color=ne[order_e], colorscale="YlOrRd", cmin=0, cmax=0.5, opacity=0.55
+                size=default_size,
+                color=ne[order_e],
+                colorscale="YlOrRd",
+                cmin=0,
+                cmax=0.5,
+                opacity=0.55,
+                colorbar=dict(title="Norm entropy"),
             ),
-            name="entropy",
             showlegend=False,
-        ),
-        row=1,
-        col=3,
+        )
     )
+    fig_ent.update_layout(**_base_layout("Normalized entropy"))
 
-    fig.update_yaxes(scaleanchor="x", scaleratio=1, row=1, col=1)
-    fig.update_yaxes(scaleanchor="x2", scaleratio=1, row=1, col=2)
-    fig.update_yaxes(scaleanchor="x3", scaleratio=1, row=1, col=3)
-    for c in (1, 2, 3):
-        fig.update_yaxes(autorange="reversed", row=1, col=c)
-
-    fig.update_layout(
-        height=520,
-        title_text=f"Spatial overview ({len(idx):,} of {n_cells:,} cells)",
-        legend=dict(orientation="v", yanchor="middle", y=0.5, x=1.02),
-    )
-    fig.update_xaxes(title_text="x (µm)", row=1, col=1)
-    fig.update_yaxes(title_text="y (µm)", row=1, col=1)
-    return fig
+    return [fig_type, fig_conf, fig_ent]
 
 
 def _fig_transcripts_vs_classification(
