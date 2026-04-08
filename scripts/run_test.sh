@@ -30,17 +30,12 @@ echo "Samplesheet: $SAMPLESHEET"
 cat "$SAMPLESHEET"
 echo ""
 
-# Keep training/infer within typical laptop RAM (override with MULTITME_MAX_MEMORY)
-MAX_MEM="${MULTITME_MAX_MEMORY:-32.GB}"
-echo "max_memory cap: $MAX_MEM (set MULTITME_MAX_MEMORY to override)"
-echo ""
-
 nextflow run "$NF_DIR" \
     --input "$SAMPLESHEET" \
     --outdir "$PROJECT_DIR/test_output" \
     --n_epochs 2 \
     --skip_report false \
-    --max_memory "$MAX_MEM" \
+    -profile test \
     -work-dir "$PROJECT_DIR/test_work" \
     "$@"
 

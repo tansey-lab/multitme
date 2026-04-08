@@ -319,8 +319,11 @@ def _fig_predicted_distribution(
 ) -> go.Figure:
     counts = {t: int((pred_types == t).sum()) for t in all_types}
     sorted_types = sorted(counts, key=counts.get, reverse=True)
+    total = sum(counts.values())
     fig = make_subplots(
-        rows=1, cols=2, subplot_titles=("Predicted types (bar)", "Composition (pie)")
+        rows=1,
+        cols=2,
+        subplot_titles=("Predicted types (count)", "Predicted types (% composition)"),
     )
 
     fig.add_trace(
@@ -335,20 +338,21 @@ def _fig_predicted_distribution(
         row=1,
         col=1,
     )
-    top_n = 8
-    top_types = sorted_types[:top_n]
-    top_counts = [counts[t] for t in top_types]
-    other = sum(counts[t] for t in sorted_types[top_n:])
-    labels = top_types + (["Other"] if other > 0 else [])
-    values = top_counts + ([other] if other > 0 else [])
-    colors_p = [type_colors[t] for t in top_types] + (["#888888"] if other > 0 else [])
-
     fig.add_trace(
-        go.Pie(labels=labels, values=values, marker=dict(colors=colors_p), name=""),
+        go.Bar(
+            x=[100 * counts[t] / total for t in sorted_types],
+            y=sorted_types,
+            orientation="h",
+            marker_color=[type_colors[t] for t in sorted_types],
+            name="pct",
+            showlegend=False,
+        ),
         row=1,
         col=2,
     )
     fig.update_yaxes(autorange="reversed", row=1, col=1)
+    fig.update_yaxes(autorange="reversed", row=1, col=2)
+    fig.update_xaxes(title_text="%", row=1, col=2)
     fig.update_layout(
         title_text=f"Predicted cell types on Xenium ({n_cells:,} cells)",
         height=max(420, 24 * len(sorted_types)),
