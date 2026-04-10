@@ -702,13 +702,14 @@ def _fig_simplex_radars(
         radar_data.append({"ct": ct, "n": int(mask.sum()), "labels": labels_k, "vals": vals_k})
 
     # ── Shared axis ─────────────────────────────────────────────────────
-    axis_max = global_max * 1.05
+    max_transformed = math.log(1.0 + EPS) - log_eps  # back-transforms to p=1.0
+    axis_max = min(global_max * 1.05, max_transformed)
     n_ticks = 5
     tick_vals = [axis_max * i / n_ticks for i in range(1, n_ticks + 1)]
     tick_text = [f"p={_back(v):.3f}" for v in tick_vals]
 
     # ── Build subplot grid ───────────────────────────────────────────────
-    n_cols = 3
+    n_cols = 2
     n_rows = math.ceil(len(radar_data) / n_cols)
     specs = [[{"type": "polar"}] * n_cols for _ in range(n_rows)]
     subplot_titles = [f"{r['ct']} (n={r['n']:,})" for r in radar_data]
@@ -761,7 +762,7 @@ def _fig_simplex_radars(
     fig.update_layout(**polar_updates)
 
     fig.update_layout(
-        height=max(400, n_rows * 300),
+        height=max(500, n_rows * 450),
         title_text=(
             f"Average probability simplex per predicted cell type "
             f"(log scale, top-{top_k} classes shown)"
@@ -769,9 +770,11 @@ def _fig_simplex_radars(
         margin=dict(l=20, r=20, t=80, b=20),
         showlegend=False,
     )
-    # Make subplot title font smaller so they don't overlap
+
+    # Shrink font and nudge each subplot title down so it doesn't overlap the top axis labels
     for ann in fig.layout.annotations:
         ann.font.size = 10
+        ann.yshift = 10
 
     return fig
 

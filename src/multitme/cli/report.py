@@ -166,10 +166,14 @@ def main(argv: list[str] | None = None) -> None:
     elif args.scrna:
         celltype_counts = _celltype_counts_from_scrna(Path(args.scrna), args.annotation_column)
 
-    # Class labels for the probability columns: prefer scRNA cell_type categories (full training
-    # set), fall back to the observed predicted_type categories, then integer indices.
+    # Class labels for the probability columns: prefer the list saved by infer (authoritative
+    # model class order), then scRNA cell_type categories, then observed predicted_type categories.
     class_labels: list[str] | None = None
-    if args.scrna:
+    if "cell_type_names" in adata.uns:
+        names = adata.uns["cell_type_names"]
+        if len(names) == probs.shape[1]:
+            class_labels = [str(n) for n in names]
+    if args.scrna and class_labels is None:
         try:
             scrna_adata = sc.read_h5ad(args.scrna)
             if "cell_type" in scrna_adata.obs.columns:
@@ -190,6 +194,8 @@ def main(argv: list[str] | None = None) -> None:
             cats = list(obs_cats.cat.categories)
             if len(cats) == probs.shape[1]:
                 class_labels = cats
+    if class_labels is None and len(all_types) == probs.shape[1]:
+        class_labels = all_types
 
     logger.info("Generating HTML dashboard...")
     write_html_dashboard(

@@ -68,7 +68,9 @@ def top_k_indices(pre: list[float], post: list[float], k: int) -> list[int]:
 def make_global_axis(radars: list[dict], n_ticks: int = 5) -> tuple[float, list, list]:
     """Compute a shared axis max and tick positions/labels across all radars."""
     global_max = max(max(max(r["pre"]), max(r["post"])) for r in radars)
-    axis_max = global_max * 1.05
+    # Cap so that no tick label back-transforms to a probability > 1.0
+    max_transformed = math.log(1.0 + EPS) - math.log(EPS)
+    axis_max = min(global_max * 1.05, max_transformed)
     tick_vals = [axis_max * i / n_ticks for i in range(1, n_ticks + 1)]
     tick_text = [f"p={back_transform(v):.3f}" for v in tick_vals]
     return axis_max, tick_vals, tick_text
@@ -79,18 +81,24 @@ def make_global_axis(radars: list[dict], n_ticks: int = 5) -> tuple[float, list,
 # ---------------------------------------------------------------------------
 
 
-def load_data(pre_h5ad, pre_probs_path, post_h5ad, post_probs_path, scrna_h5ad):
+def load_data(pre_h5ad, pre_probs_path, post_h5ad, post_probs_path, scrna_h5ad=None):
     pre = sc.read_h5ad(pre_h5ad)
     post = sc.read_h5ad(post_h5ad)
     pre_probs = np.load(pre_probs_path)
     post_probs = np.load(post_probs_path)
-    scrna = sc.read_h5ad(scrna_h5ad)
 
-    class_labels = list(scrna.obs["cell_type"].cat.categories)
-    assert len(class_labels) == pre_probs.shape[1], (
-        f"scRNA cell_type categories ({len(class_labels)}) don't match "
-        f"pre_probs columns ({pre_probs.shape[1]})"
-    )
+    if scrna_h5ad is not None:
+        scrna = sc.read_h5ad(scrna_h5ad)
+        # Try major_cell_types first (6-class), fall back to cell_type
+        col = "major_cell_types" if "major_cell_types" in scrna.obs.columns else "cell_type"
+        class_labels = [str(c) for c in scrna.obs[col].astype("category").cat.categories]
+        assert len(class_labels) == pre_probs.shape[1], (
+            f"scRNA {col} categories ({len(class_labels)}) don't match "
+            f"pre_probs columns ({pre_probs.shape[1]})"
+        )
+    else:
+        # Derive class label order directly from the pre predictions
+        class_labels = [str(c) for c in pre.obs["predicted_type"].astype("category").cat.categories]
 
     # Index pre by cell_id
     pre.obs = pre.obs.set_index("cell_id")
@@ -384,11 +392,11 @@ def build_html(
   #boxplot {{ width: 100%; height: 520px; }}
   #radar-container {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
     width: 100%;
   }}
-  .radar-cell {{ height: 380px; width: 100%; }}
+  .radar-cell {{ height: 480px; width: 100%; }}
 </style>
 </head>
 <body>
@@ -496,8 +504,8 @@ def main():
     parser.add_argument("--post-probs", required=True, help="Post-ebbf pred_probs .npy")
     parser.add_argument(
         "--scrna-h5ad",
-        required=True,
-        help="scRNA reference .h5ad (obs['cell_type'] gives class label order)",
+        default=None,
+        help="scRNA reference .h5ad (optional; obs['major_cell_types'] or 'cell_type' gives class label order; if omitted, labels are derived from pre predictions)",
     )
     parser.add_argument(
         "--output",

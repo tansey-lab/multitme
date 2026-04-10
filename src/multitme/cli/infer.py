@@ -85,6 +85,7 @@ def main(argv: list[str] | None = None) -> None:
     np.save(outdir / "pred_idx.npy", pred_idx)
     np.save(outdir / "pred_probs.npy", probs)
     adata.obs["predicted_type"] = pred_types
+    adata.uns["cell_type_names"] = list(unique_types)
     adata.write_h5ad(outdir / "predictions.h5ad")
 
     logger.info(f"Predictions saved to {outdir}")
