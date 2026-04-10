@@ -166,6 +166,31 @@ def main(argv: list[str] | None = None) -> None:
     elif args.scrna:
         celltype_counts = _celltype_counts_from_scrna(Path(args.scrna), args.annotation_column)
 
+    # Class labels for the probability columns: prefer scRNA cell_type categories (full training
+    # set), fall back to the observed predicted_type categories, then integer indices.
+    class_labels: list[str] | None = None
+    if args.scrna:
+        try:
+            scrna_adata = sc.read_h5ad(args.scrna)
+            if "cell_type" in scrna_adata.obs.columns:
+                class_labels = list(scrna_adata.obs["cell_type"].cat.categories)
+                if len(class_labels) != probs.shape[1]:
+                    logger.warning(
+                        "scRNA cell_type categories (%d) don't match probs columns (%d); "
+                        "falling back to predicted_type categories",
+                        len(class_labels),
+                        probs.shape[1],
+                    )
+                    class_labels = None
+        except Exception as exc:
+            logger.warning("Could not read class labels from scRNA h5ad: %s", exc)
+    if class_labels is None:
+        obs_cats = adata.obs.get("predicted_type")
+        if obs_cats is not None and hasattr(obs_cats, "cat"):
+            cats = list(obs_cats.cat.categories)
+            if len(cats) == probs.shape[1]:
+                class_labels = cats
+
     logger.info("Generating HTML dashboard...")
     write_html_dashboard(
         outdir,
@@ -180,6 +205,8 @@ def main(argv: list[str] | None = None) -> None:
         norm_entropy=norm_entropy,
         n_cells=n_cells,
         total_transcripts_per_cell=total_transcripts,
+        pred_probs=probs,
+        class_labels=class_labels,
     )
 
     if not (outdir / "gene_overlap_common_genes.txt").exists():

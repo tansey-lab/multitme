@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import logging
+import math
 import re
 from pathlib import Path
 
@@ -55,6 +56,8 @@ def write_html_dashboard(
     norm_entropy: np.ndarray,
     n_cells: int,
     total_transcripts_per_cell: np.ndarray | None = None,
+    pred_probs: np.ndarray | None = None,
+    class_labels: list[str] | None = None,
 ) -> None:
     """Write ``report.html`` with interactive Plotly figures and asset links."""
     sections: list[str] = []
@@ -92,6 +95,7 @@ def write_html_dashboard(
       <a href="#transcripts">Transcripts vs type</a>
       <a href="#confidence">Confidence</a>
       <a href="#spatial">Spatial</a>
+      <a href="#simplex">Probability simplex</a>
     </nav>
     """
 
@@ -143,6 +147,21 @@ def write_html_dashboard(
     sections.append(
         '<h2 id="spatial">Spatial (Xenium)</h2>' + "".join(plotly_block(f) for f in figs_spatial)
     )
+
+    # ── Probability simplex radars ──────────────────────────────────────
+    if pred_probs is not None:
+        labels = (
+            class_labels
+            if class_labels is not None
+            else [str(i) for i in range(pred_probs.shape[1])]
+        )
+        fig_simplex = _fig_simplex_radars(pred_types, pred_probs, labels, type_colors)
+        sections.append(
+            '<h2 id="simplex">Average probability simplex per cell type</h2>'
+            '<p class="muted">Mean probability distribution across the top-20 classes for each '
+            "predicted cell type, log-scaled. Each spoke is a class; radius = "
+            "log(p + ε) − log(ε).</p>" + plotly_block(fig_simplex)
+        )
 
     title = f"{sample_prefix.rstrip('_')} — MultiTME report" if sample_prefix else "MultiTME report"
     html = f"""<!DOCTYPE html>
@@ -639,6 +658,122 @@ def _html_transcript_summary_table(
         "<tr><th>Predicted type</th><th>Cells</th><th>Median</th>"
         "<th>Mean</th><th>Min</th><th>Max</th></tr>" + "".join(rows) + "</table>"
     )
+
+
+def _fig_simplex_radars(
+    pred_types: np.ndarray,
+    pred_probs: np.ndarray,
+    class_labels: list[str],
+    type_colors: dict[str, str],
+    top_k: int = 20,
+) -> go.Figure:
+    """Grid of polar (radar) subplots — one per predicted cell type, 3 columns wide.
+
+    The radial axis uses log(p + EPS) − log(EPS) so small probabilities are
+    spread out visibly. Ticks are labelled as p-values on a shared scale.
+    """
+    EPS = 1e-4
+    log_eps = math.log(EPS)
+
+    def _log(v: float) -> float:
+        return math.log(max(v, 0.0) + EPS) - log_eps
+
+    def _back(t: float) -> float:
+        return math.exp(t + log_eps) - EPS
+
+    def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
+    # ── Per-type mean simplex ───────────────────────────────────────────
+    cell_types = sorted(t for t in set(pred_types) if (pred_types == t).sum() > 0)
+
+    radar_data: list[dict] = []
+    global_max = 0.0
+    for ct in cell_types:
+        mask = pred_types == ct
+        mean_p = pred_probs[mask].mean(axis=0)  # (n_classes,)
+        idx = sorted(np.argsort(mean_p)[::-1][:top_k].tolist())
+        labels_k = [class_labels[i] if i < len(class_labels) else str(i) for i in idx]
+        vals_k = [_log(float(mean_p[i])) for i in idx]
+        local_max = max(vals_k) if vals_k else 0.0
+        global_max = max(global_max, local_max)
+        radar_data.append({"ct": ct, "n": int(mask.sum()), "labels": labels_k, "vals": vals_k})
+
+    # ── Shared axis ─────────────────────────────────────────────────────
+    axis_max = global_max * 1.05
+    n_ticks = 5
+    tick_vals = [axis_max * i / n_ticks for i in range(1, n_ticks + 1)]
+    tick_text = [f"p={_back(v):.3f}" for v in tick_vals]
+
+    # ── Build subplot grid ───────────────────────────────────────────────
+    n_cols = 3
+    n_rows = math.ceil(len(radar_data) / n_cols)
+    specs = [[{"type": "polar"}] * n_cols for _ in range(n_rows)]
+    subplot_titles = [f"{r['ct']} (n={r['n']:,})" for r in radar_data]
+    # Pad to fill the grid
+    while len(subplot_titles) < n_rows * n_cols:
+        subplot_titles.append("")
+
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        specs=specs,
+        subplot_titles=subplot_titles,
+    )
+
+    for i, r in enumerate(radar_data):
+        row = i // n_cols + 1
+        col = i % n_cols + 1
+        color = type_colors.get(r["ct"], "#4a9eff")
+        labels = r["labels"] + [r["labels"][0]]
+        vals = r["vals"] + [r["vals"][0]]
+        fig.add_trace(
+            go.Scatterpolar(
+                r=vals,
+                theta=labels,
+                fill="toself",
+                line=dict(color=color, width=1.5),
+                fillcolor=_hex_to_rgba(color, 0.15),
+                showlegend=False,
+                hovertemplate="<b>%{theta}</b><br>%{r:.3f}<extra></extra>",
+            ),
+            row=row,
+            col=col,
+        )
+
+    # ── Shared radial axis settings across all polar subplots ────────────
+    radial_axis = dict(
+        visible=True,
+        tickvals=tick_vals,
+        ticktext=tick_text,
+        range=[0, axis_max],
+        tickfont=dict(size=7),
+        gridcolor="#cccccc",
+    )
+    angular_axis = dict(tickfont=dict(size=8))
+
+    polar_updates: dict = {}
+    for i in range(len(radar_data)):
+        key = "polar" if i == 0 else f"polar{i + 1}"
+        polar_updates[key] = dict(radialaxis=radial_axis, angularaxis=angular_axis)
+    fig.update_layout(**polar_updates)
+
+    fig.update_layout(
+        height=max(400, n_rows * 300),
+        title_text=(
+            f"Average probability simplex per predicted cell type "
+            f"(log scale, top-{top_k} classes shown)"
+        ),
+        margin=dict(l=20, r=20, t=80, b=20),
+        showlegend=False,
+    )
+    # Make subplot title font smaller so they don't overlap
+    for ann in fig.layout.annotations:
+        ann.font.size = 10
+
+    return fig
 
 
 def _section_asset_links(sample_prefix: str) -> str:
