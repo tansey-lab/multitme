@@ -355,7 +355,7 @@ def layout_radar(ct, n, axis_max, tick_vals, tick_text):
             "y": 0.97,
             "xanchor": "center",
         },
-        "margin": {"l": 28, "r": 28, "t": 52, "b": 16},
+        "margin": {"l": 28, "r": 28, "t": 70, "b": 16},
     }
 
 
