@@ -161,6 +161,9 @@ def main(argv: list[str] | None = None) -> None:
     trainer.fit(
         loader,
         n_epochs=cfg.training.n_epochs,
+        max_epochs=cfg.training.max_epochs,
+        slope_window=cfg.training.slope_window,
+        slope_threshold=cfg.training.slope_threshold,
         print_every=cfg.training.print_every,
         start_epoch=start_epoch,
     )

@@ -11,6 +11,33 @@ from torch.utils.data import Dataset
 logger = logging.getLogger(__name__)
 
 
+def check_loss_slope_convergence(losses: list, window: int, threshold: float) -> bool:
+    """Return True if the recent per-epoch total loss has flattened.
+
+    Fits a line over the last *window* values of *losses* and checks whether
+    the slope, normalised by the mean loss in that window, falls below
+    *threshold*.
+
+    Parameters
+    ----------
+    losses : list of float
+        Per-epoch loss history (e.g. ``trainer.history["total"]``).
+    window : int
+        Number of recent epochs to fit the line over.
+    threshold : float
+        Stop when ``|slope / mean_loss| < threshold``.
+    """
+    if len(losses) < window:
+        return False
+    recent = np.array(losses[-window:], dtype=float)
+    x = np.arange(window, dtype=float)
+    slope = np.polyfit(x, recent, 1)[0]
+    mean_loss = recent.mean()
+    if mean_loss == 0.0:
+        return False
+    return abs(slope / mean_loss) < threshold
+
+
 class MultiModalCycleVAE(nn.Module):
     def __init__(
         self,
@@ -391,6 +418,9 @@ class CycleVAETrainer:
                 logger.warning("wandb not installed, disabling experiment tracking")
                 self.wandb_enabled = False
 
+    def _check_slope_convergence(self, window, threshold):
+        return check_loss_slope_convergence(self.history["total"], window, threshold)
+
     def _get_beta(self, epoch):
         if self.beta_warmup_epochs <= 0:
             return self.beta
@@ -457,18 +487,52 @@ class CycleVAETrainer:
 
         return epoch_losses
 
-    def fit(self, dataloader, n_epochs=50, print_every=5, start_epoch=0):
+    def fit(
+        self,
+        dataloader,
+        n_epochs=None,
+        max_epochs=500,
+        slope_window=10,
+        slope_threshold=1e-4,
+        print_every=5,
+        start_epoch=0,
+    ):
+        """Train the model.
+
+        Parameters
+        ----------
+        n_epochs : int or None
+            If an integer, train for exactly this many epochs (no early stopping).
+            If None (default), use slope-based early stopping: training halts once
+            the normalised slope of the total-loss curve over the last
+            *slope_window* epochs drops below *slope_threshold*.
+        max_epochs : int
+            Hard upper limit on epochs when slope-based stopping is active.
+        slope_window : int
+            Number of recent epochs used for the linear-slope estimate.
+        slope_threshold : float
+            Stop when |slope / mean_loss| < threshold.
+        """
+        use_slope_stopping = n_epochs is None
+        epoch_limit = max_epochs if use_slope_stopping else n_epochs
+
         device = next(self.model.parameters()).device
+        stop_desc = (
+            f"slope stopping (window={slope_window}, threshold={slope_threshold}, max={max_epochs})"
+            if use_slope_stopping
+            else f"fixed {n_epochs} epochs"
+        )
         logger.info(
             f"Training MultiModal CycleVAE on {device} | modalities={self.model.modality_names} "
             f"| latent={self.model.n_latent} | batches/epoch={len(dataloader)} "
             f"| beta={self.beta:.2f} (warmup={self.beta_warmup_epochs}) "
-            f"| epochs={start_epoch}-{n_epochs - 1}"
+            f"| stopping={stop_desc}"
         )
 
         start_time = time.time()
+        stopped_epoch = epoch_limit - 1
 
-        for epoch in range(start_epoch, n_epochs):
+        for epoch in range(start_epoch, epoch_limit):
             epoch_start = time.time()
 
             if hasattr(dataloader.dataset, "reshuffle"):
@@ -493,12 +557,21 @@ class CycleVAETrainer:
             if device.type == "mps" and epoch % 5 == 0 and epoch > 0:
                 torch.mps.empty_cache()
 
+            if use_slope_stopping and self._check_slope_convergence(slope_window, slope_threshold):
+                logger.info(
+                    f"Epoch {epoch}: loss slope converged "
+                    f"(|slope/mean| < {slope_threshold} over last {slope_window} epochs) — stopping early."
+                )
+                stopped_epoch = epoch
+                break
+
         # Final checkpoint
         if self.output_dir:
-            self.save_checkpoint(n_epochs - 1)
+            self.save_checkpoint(stopped_epoch)
 
         total_time = time.time() - start_time
+        n_trained = stopped_epoch - start_epoch + 1
         logger.info(
-            f"Training complete: {total_time / 60:.1f} min, {total_time / n_epochs:.1f}s/epoch"
+            f"Training complete: {total_time / 60:.1f} min, {total_time / max(n_trained, 1):.1f}s/epoch"
         )
         return self.history

@@ -78,9 +78,9 @@
           "description": "Number of latent dimensions for the CycleVAE model."
         },
         "n_epochs": {
-          "type": "integer",
-          "default": 50,
-          "description": "Number of training epochs."
+          "type": ["integer", "null"],
+          "default": null,
+          "description": "Number of training epochs. If null (default), slope-based early stopping is used instead."
         },
         "learning_rate": {
           "type": "number",

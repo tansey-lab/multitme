@@ -24,7 +24,12 @@ DEFAULT_CONFIG = {
         "labeled_modality": "scrna",
     },
     "training": {
-        "n_epochs": 50,
+        # n_epochs: if null, slope-based early stopping is used (see slope_* params below).
+        # Set to an integer to train for exactly that many epochs instead.
+        "n_epochs": None,
+        "max_epochs": 500,
+        "slope_window": 10,
+        "slope_threshold": 1e-4,
         "learning_rate": 1e-3,
         "batch_size": 4096,
         "cycle_weight": 1.0,
