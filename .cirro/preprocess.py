@@ -68,25 +68,25 @@ def split_inputs(ds: PreprocessDataset) -> tuple[list[dict], list[dict]]:
     return scrna_inputs, xenium_inputs
 
 
-def scrna_file_for_dataset(dataset_id: str, ds: PreprocessDataset) -> str:
+def scrna_file_for_data_path(data_path: str, ds: PreprocessDataset) -> str:
     """
-    Return the actual file path for a scRNA dataset from ds.files.
+    Return the actual h5ad file path for a scRNA dataset by matching against ds.files.
 
-    Falls back to the dataPath directory if no file is found.
+    Finds any file in ds.files whose path starts with data_path.
     """
     files = ds.files
-    if files.empty or "dataset" not in files.columns:
+    if files.empty:
         return ""
-    matches = files[files["dataset"] == dataset_id]
+    matches = files[files["file"].str.startswith(data_path, na=False)]
     if matches.empty:
-        ds.logger.warning(f"  No files found in ds.files for dataset ID '{dataset_id}'.")
+        ds.logger.warning(f"  No files in ds.files start with '{data_path}'.")
         return ""
     if len(matches) > 1:
         ds.logger.warning(
-            f"  Multiple files for dataset '{dataset_id}', using first: {matches['file'].tolist()}"
+            f"  Multiple files match '{data_path}', using first: {matches['file'].tolist()}"
         )
     path = matches.iloc[0]["file"]
-    ds.logger.info(f"  Resolved scRNA file for dataset '{dataset_id}': {path}")
+    ds.logger.info(f"  Resolved scRNA file for '{data_path}': {path}")
     return path
 
 
@@ -118,22 +118,13 @@ def build_samplesheet(ds: PreprocessDataset) -> pd.DataFrame:
 
     rows = []
     for i, (scrna_inp, xenium_inp) in enumerate(zip(scrna_inputs, xenium_inputs, strict=False)):
-        # Derive the actual scRNA file path from ds.files
         scrna_data_path = scrna_inp.get("dataPath", "")
-        # Extract dataset ID: the UUID portion of the dataPath
-        dataset_id_match = re.search(
-            r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
-            scrna_data_path,
-        )
-        scrna_dataset_id = dataset_id_match.group(1) if dataset_id_match else ""
-        ds.logger.info(f"  Pair [{i}]: scRNA dataset ID extracted as '{scrna_dataset_id}'")
+        ds.logger.info(f"  Pair [{i}]: resolving scRNA file for dataPath '{scrna_data_path}'")
 
-        scrna_path = (
-            scrna_file_for_dataset(scrna_dataset_id, ds) if scrna_dataset_id else scrna_data_path
-        )
+        scrna_path = scrna_file_for_data_path(scrna_data_path, ds)
         if not scrna_path:
             ds.logger.warning(
-                f"  Pair [{i}]: falling back to scRNA dataPath directory: {scrna_data_path}"
+                f"  Pair [{i}]: no file found in ds.files, falling back to dataPath directory: {scrna_data_path}"
             )
             scrna_path = scrna_data_path
 
