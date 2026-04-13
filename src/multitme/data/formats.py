@@ -97,7 +97,13 @@ def _load_xenium_ranger(xenium_dir: Path) -> ad.AnnData:
     """Load AnnData from a Xenium Ranger output directory via spatialdata_io."""
     import spatialdata_io
 
-    sd = spatialdata_io.xenium(str(xenium_dir), cells_as_circles=True)
+    sd = spatialdata_io.xenium(
+        str(xenium_dir),
+        cells_as_circles=True,
+        morphology_mip=False,
+        morphology_focus=False,
+        transcripts=False,
+    )
     table_name = next(iter(sd.tables))
     logger.info(f"Using table '{table_name}' from Xenium Ranger directory")
     return sd.tables[table_name]

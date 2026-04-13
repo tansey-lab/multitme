@@ -1,6 +1,6 @@
 process PREPROCESS {
     tag "$meta.id"
-    label 'process_medium'
+    label 'process_high'
 
     container "${params.container_registry}/multitme:${params.container_version}"
 

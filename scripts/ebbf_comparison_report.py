@@ -145,6 +145,18 @@ def load_data(pre_h5ad, pre_probs_path, post_h5ad, post_probs_path, scrna_h5ad=N
 # ---------------------------------------------------------------------------
 
 
+def compute_distribution(pre_df: pd.DataFrame, post_df: pd.DataFrame) -> tuple[list, list, list]:
+    """Cell type counts across all pre/post cells, sorted by pre count descending."""
+    pre_counts = pre_df["label_pre"].value_counts()
+    post_counts = post_df["label_post"].value_counts()
+    all_types = sorted(
+        pre_counts.index.union(post_counts.index), key=lambda ct: -pre_counts.get(ct, 0)
+    )
+    pre_vals = [int(pre_counts.get(ct, 0)) for ct in all_types]
+    post_vals = [int(post_counts.get(ct, 0)) for ct in all_types]
+    return all_types, pre_vals, post_vals
+
+
 def compute_net_flow(m: pd.DataFrame) -> tuple[list, list, list]:
     changed = m[m["label_pre"] != m["label_post"]]
     lost = changed["label_pre"].value_counts()
@@ -197,6 +209,26 @@ def compute_box_data(m: pd.DataFrame) -> tuple[dict, list]:
 # ---------------------------------------------------------------------------
 # Plotly trace builders
 # ---------------------------------------------------------------------------
+
+
+def dist_traces(ct_labels, pre_vals, post_vals):
+    pre_t = dict(
+        type="bar",
+        name="Pre-ebbf",
+        x=ct_labels,
+        y=pre_vals,
+        marker={"color": "#4a9eff"},
+        hovertemplate="<b>%{x}</b><br>Pre: %{y:,}<extra></extra>",
+    )
+    post_t = dict(
+        type="bar",
+        name="Post-ebbf",
+        x=ct_labels,
+        y=post_vals,
+        marker={"color": "#ff8c42"},
+        hovertemplate="<b>%{x}</b><br>Post: %{y:,}<extra></extra>",
+    )
+    return pre_t, post_t
 
 
 def bar_trace(labels, values, colors):
@@ -287,6 +319,19 @@ BASE_LAYOUT = dict(
 )
 
 
+def layout_dist():
+    return {
+        **BASE_LAYOUT,
+        "margin": {"l": 60, "r": 20, "t": 10, "b": 80},
+        "xaxis": {"color": "#ccc", "tickfont": {"size": 11}, "automargin": True},
+        "yaxis": {"title": "Cell count", "color": "#aaa", "gridcolor": "#333"},
+        "barmode": "group",
+        "bargap": 0.2,
+        "bargroupgap": 0.05,
+        "legend": {"font": {"color": "#ccc"}, "bgcolor": "rgba(0,0,0,0)"},
+    }
+
+
 def layout_bar():
     return {
         **BASE_LAYOUT,
@@ -360,6 +405,8 @@ def layout_radar(ct, n, axis_max, tick_vals, tick_text):
 
 
 def build_html(
+    dist_pre_trace,
+    dist_post_trace,
     bar_labels,
     bar_values,
     bar_colors,
@@ -387,6 +434,7 @@ def build_html(
   body {{ font-family: sans-serif; background: #0f0f0f; color: #e0e0e0; margin: 0; padding: 16px; }}
   h1 {{ font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 4px; }}
   h2 {{ font-size: 14px; font-weight: 500; color: #aaa; margin: 28px 0 8px; }}
+  #distplot {{ width: 100%; height: 380px; }}
   #barplot {{ width: 100%; height: 600px; }}
   #overall-boxplot {{ width: 100%; height: 260px; }}
   #boxplot {{ width: 100%; height: 520px; }}
@@ -406,6 +454,9 @@ def build_html(
   Removed by ebbf: {n_removed:,} &nbsp;|&nbsp;
   New from ebbf: {n_new:,}
 </p>
+
+<h2>Cell Type Distribution — Pre vs Post ebbf (all cells)</h2>
+<div id="distplot"></div>
 
 <h2>Net Label Gain / Loss per Cell Type (matched cells, label changed)</h2>
 <div id="barplot"></div>
@@ -432,7 +483,10 @@ def build_html(
 
     html += "</div>\n\n<script>\n"
 
-    # Bar chart
+    # Distribution grouped bar
+    html += f"Plotly.newPlot('distplot',{json.dumps([dist_pre_trace, dist_post_trace])},{json.dumps(layout_dist())},{{responsive:true}});\n"
+
+    # Net change bar chart
     html += f"Plotly.newPlot('barplot',{json.dumps([bar_trace(bar_labels, bar_values, bar_colors)])},{json.dumps(layout_bar())},{{responsive:true}});\n"
 
     # Overall box
@@ -524,6 +578,10 @@ def main():
         f"  Matched: {len(d['common']):,}  |  Removed: {len(d['only_pre']):,}  |  New: {len(d['only_post']):,}"
     )
 
+    print("Computing distributions...")
+    dist_labels, dist_pre_vals, dist_post_vals = compute_distribution(d["pre_df"], d["post_df"])
+    d_pre_trace, d_post_trace = dist_traces(dist_labels, dist_pre_vals, dist_post_vals)
+
     print("Computing net flow...")
     bar_labels, bar_values, bar_colors = compute_net_flow(d["matched"])
 
@@ -540,6 +598,8 @@ def main():
 
     print("Building HTML...")
     html = build_html(
+        d_pre_trace,
+        d_post_trace,
         bar_labels,
         bar_values,
         bar_colors,
