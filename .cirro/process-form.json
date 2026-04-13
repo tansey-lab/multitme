@@ -1,0 +1,160 @@
+{
+  "form": {
+    "title": "multitme pipeline parameters",
+    "description": "Multimodal integration of spatial transcriptomics data",
+    "type": "object",
+    "properties": {
+      "model_options": {
+        "title": "Model options",
+        "type": "object",
+        "fa_icon": "fas fa-brain",
+        "description": "Configure model training and inference parameters",
+        "properties": {
+          "n_latent": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of latent dimensions for the CycleVAE model",
+            "fa_icon": "fas fa-project-diagram",
+            "minimum": 2,
+            "maximum": 256
+          },
+          "n_epochs": {
+            "type": "integer",
+            "description": "Number of training epochs. Leave unset to use early stopping.",
+            "fa_icon": "fas fa-redo",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "learning_rate": {
+            "type": "number",
+            "default": 0.001,
+            "description": "Learning rate for model training",
+            "fa_icon": "fas fa-tachometer-alt",
+            "minimum": 0.000001,
+            "maximum": 1.0
+          },
+          "batch_size": {
+            "type": "integer",
+            "default": 4096,
+            "description": "Batch size for model training",
+            "fa_icon": "fas fa-layer-group",
+            "minimum": 64,
+            "maximum": 65536
+          }
+        }
+      },
+      "preprocessing_options": {
+        "title": "Preprocessing options",
+        "type": "object",
+        "fa_icon": "fas fa-filter",
+        "description": "Configure data preprocessing parameters",
+        "properties": {
+          "preprocess_method": {
+            "type": "string",
+            "default": "log1p",
+            "description": "Normalization method for scRNA-seq data",
+            "fa_icon": "fas fa-sliders-h",
+            "enum": ["log1p", "clr"]
+          },
+          "annotation_column": {
+            "type": "string",
+            "default": "major_annotation",
+            "description": "Column name in scRNA metadata containing cell type annotations",
+            "fa_icon": "fas fa-tag"
+          }
+        }
+      },
+      "output_options": {
+        "title": "Output options",
+        "type": "object",
+        "fa_icon": "fas fa-chart-bar",
+        "description": "Configure pipeline output options",
+        "properties": {
+          "skip_report": {
+            "type": "boolean",
+            "default": false,
+            "description": "Skip generation of visualization reports (PDFs and HTML)",
+            "fa_icon": "fas fa-file-pdf"
+          }
+        }
+      },
+      "input_output_options": {
+        "title": "Input/output options",
+        "type": "object",
+        "fa_icon": "fas fa-terminal",
+        "description": "Define where the pipeline should find input data and save output data.",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address for completion summary.",
+            "fa_icon": "fas fa-envelope",
+            "help_text": "Set this parameter to your e-mail address to get a summary e-mail with details of the run sent to you when the workflow exits.",
+            "pattern": "^([a-zA-Z0-9_\\-\\.]+)@([a-zA-Z0-9_\\-\\.]+)\\.([a-zA-Z]{2,5})$"
+          },
+          "multiqc_title": {
+            "type": "string",
+            "description": "MultiQC report title. Printed as page header, used for filename if not otherwise specified.",
+            "fa_icon": "fas fa-file-signature"
+          }
+        }
+      },
+      "wandb_options": {
+        "title": "Weights & Biases options",
+        "type": "object",
+        "fa_icon": "fas fa-chart-line",
+        "description": "Configure Weights & Biases experiment tracking",
+        "properties": {
+          "wandb_enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable Weights & Biases logging",
+            "fa_icon": "fas fa-chart-line"
+          },
+          "wandb_api_key": {
+            "type": "string",
+            "description": "Weights & Biases API key for online logging",
+            "fa_icon": "fas fa-key",
+            "help_text": "If provided, enables online W&B logging. Get your key from https://wandb.ai/authorize"
+          }
+        }
+      },
+      "generic_options": {
+        "title": "Generic options",
+        "type": "object",
+        "fa_icon": "fas fa-file-import",
+        "description": "Less common options for the pipeline, typically set in a config file.",
+        "properties": {
+          "publish_dir_mode": {
+            "type": "string",
+            "default": "copy",
+            "description": "Method used to save pipeline results to output directory.",
+            "fa_icon": "fas fa-copy",
+            "enum": [
+              "symlink",
+              "rellink",
+              "link",
+              "copy",
+              "copyNoFollow",
+              "move"
+            ],
+            "hidden": true
+          },
+          "monochrome_logs": {
+            "type": "boolean",
+            "description": "Do not use coloured log outputs.",
+            "fa_icon": "fas fa-palette",
+            "hidden": true
+          },
+          "validate_params": {
+            "type": "boolean",
+            "description": "Boolean whether to validate parameters against the schema at runtime",
+            "default": true,
+            "fa_icon": "fas fa-check-square",
+            "hidden": true
+          }
+        }
+      }
+    }
+  },
+  "ui": {}
+}
