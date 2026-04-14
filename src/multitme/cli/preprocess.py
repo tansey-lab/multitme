@@ -36,6 +36,11 @@ def main(argv: list[str] | None = None) -> None:
     adata = sc.read_h5ad(args.scrna)
     adata = adata[adata.X.sum(axis=1) > 0]
     ann_col = cfg.data.annotation_column
+    if ann_col not in adata.obs.columns:
+        available = ", ".join(sorted(adata.obs.columns.tolist()))
+        raise KeyError(
+            f"Annotation column '{ann_col}' not found in adata.obs. Available columns: {available}"
+        )
     labels_pre = adata.obs[ann_col].astype(str)
     counts_before = labels_pre.value_counts().to_dict()
     total_before = int(adata.n_obs)
