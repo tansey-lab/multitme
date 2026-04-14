@@ -13,8 +13,8 @@ COPY configs/ ./configs/
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install the package
-RUN uv sync --no-dev --no-editable
+# Install the package (cache mount keeps uv cache out of image layers)
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --no-dev --no-editable
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
