@@ -20,10 +20,7 @@ RUN uv sync --no-dev --no-editable
 ENV PYTHONUNBUFFERED=1
 ENV POLARS_SKIP_CPU_CHECK=1
 ENV TRITON_CACHE_DIR=/tmp/triton_cache
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Switch back to non-root user
 USER 1001
-
-# Entry point
-ENTRYPOINT ["uv", "run"]
-CMD ["multitme-train", "--help"]
