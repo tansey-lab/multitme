@@ -1,7 +1,11 @@
+import logging
+
 import anndata
 import numpy as np
 import scanpy as sc
 from scipy import sparse
+
+logger = logging.getLogger(__name__)
 
 
 def downsample_scrna(adata, cell_type_col, max_cells=100_000, seed=0):
@@ -30,7 +34,16 @@ def downsample_scrna(adata, cell_type_col, max_cells=100_000, seed=0):
         return adata
 
     rng = np.random.default_rng(seed)
-    cell_types = adata.obs[cell_type_col].values
+    valid_mask = adata.obs[cell_type_col].notna()
+    n_nan = (~valid_mask).sum()
+    if n_nan > 0:
+        logger.warning(
+            "Removing %d cells with NaN values in cell type column '%s'",
+            n_nan,
+            cell_type_col,
+        )
+        adata = adata[valid_mask]
+    cell_types = adata.obs[cell_type_col].astype(str)
     unique_types = np.unique(cell_types)
     per_type_quota = max_cells // len(unique_types)
 
