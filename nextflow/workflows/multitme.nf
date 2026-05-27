@@ -51,8 +51,6 @@ workflow MULTITME {
         ch_config,
         PREPROCESS.out.scrna_adata,
         PREPROCESS.out.xenium_adata,
-        PREPROCESS.out.scrna_data,
-        PREPROCESS.out.xenium_data,
     )
     ch_versions = ch_versions.mix(TRAIN.out.versions)
 

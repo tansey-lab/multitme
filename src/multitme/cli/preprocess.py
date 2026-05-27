@@ -7,7 +7,6 @@ import json
 import logging
 from pathlib import Path
 
-import numpy as np
 import scanpy as sc
 
 from multitme.config import load_config
@@ -82,9 +81,9 @@ def main(argv: list[str] | None = None) -> None:
         pseudocount=cfg.data.pseudocount,
         clip_percentile=cfg.data.clip_percentile,
     )
-    np.save(outdir / "scrna_preprocessed.npy", data)
+    adata.layers["preprocessed"] = data
     adata.write_h5ad(outdir / "scrna_filtered.h5ad")
-    logger.info(f"Saved preprocessed scRNA: {data.shape}")
+    logger.info(f"Saved preprocessed scRNA: {data.shape} (layer 'preprocessed')")
 
     logger.info(f"Loading Xenium data from {args.xenium}")
     adata = load_xenium_adata(args.xenium)
@@ -95,9 +94,9 @@ def main(argv: list[str] | None = None) -> None:
         pseudocount=cfg.data.pseudocount,
         clip_percentile=cfg.data.clip_percentile,
     )
-    np.save(outdir / "xenium_preprocessed.npy", data)
+    adata.layers["preprocessed"] = data
     adata.write_h5ad(outdir / "xenium_filtered.h5ad")
-    logger.info(f"Saved preprocessed Xenium: {data.shape}")
+    logger.info(f"Saved preprocessed Xenium: {data.shape} (layer 'preprocessed')")
 
     logger.info("Preprocessing complete")
 

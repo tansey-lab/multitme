@@ -9,8 +9,6 @@ process TRAIN {
     tuple val(meta), path(config)
     tuple val(meta), path(scrna)
     tuple val(meta), path(xenium)
-    tuple val(meta), path(scrna_preprocessed)
-    tuple val(meta), path(xenium_preprocessed)
 
     output:
     tuple val(meta), path("${meta.id}_checkpoint.pt"), emit: checkpoint
@@ -19,6 +17,13 @@ process TRAIN {
     script:
     def args = task.ext.args ?: ''
     def wandb_key = params.wandb_api_key ?: ''
+    def spatial_overrides = (params.spatial_enabled ?: false) ? (
+        "spatial.enabled=true " +
+        "spatial.obsm_key=${params.spatial_obsm_key ?: 'spatial'} " +
+        "spatial.tile_size=${params.spatial_tile_size ?: 500.0} " +
+        "spatial.halo=${params.spatial_halo ?: 150.0} " +
+        "spatial.weight=${params.spatial_weight ?: 1.0}"
+    ) : ''
     """
     # Set wandb API key if provided
     if [ -n "${wandb_key}" ]; then
@@ -33,10 +38,9 @@ process TRAIN {
         --config ${config} \\
         --scrna ${scrna} \\
         --xenium ${xenium} \\
-        --scrna-preprocessed ${scrna_preprocessed} \\
-        --xenium-preprocessed ${xenium_preprocessed} \\
         data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\
+        ${spatial_overrides} \\
         ${args}
 
     mv checkpoint.pt ${meta.id}_checkpoint.pt

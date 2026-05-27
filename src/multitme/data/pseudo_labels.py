@@ -4,6 +4,7 @@ import logging
 
 import numpy as np
 import torch
+from scipy import sparse
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +15,23 @@ def compute_marker_scores(
     marker_dict: dict[str, list[str]],
     normalize: bool = True,
 ) -> dict[str, np.ndarray]:
-    """Compute per-cell mean expression scores for each cell type's marker genes."""
+    """Compute per-cell mean expression scores for each cell type's marker genes.
+
+    Accepts either a dense ndarray or scipy.sparse matrix; the sparse path
+    never densifies the full matrix.
+    """
     gene_to_idx = {g: i for i, g in enumerate(gene_names)}
+    is_sparse = sparse.issparse(data)
 
     if normalize:
-        lib_size = data.sum(axis=1, keepdims=True) + 1e-8
-        data = np.log1p(data / lib_size * 1e4)
+        if is_sparse:
+            lib_size = np.asarray(data.sum(axis=1)).ravel() + 1e-8
+            scale = (1e4 / lib_size).astype(np.float32)
+            data = sparse.diags(scale) @ data.tocsr()
+            data = data.log1p()
+        else:
+            lib_size = data.sum(axis=1, keepdims=True) + 1e-8
+            data = np.log1p(data / lib_size * 1e4)
 
     scores = {}
     for cell_type, markers in marker_dict.items():
@@ -33,7 +45,11 @@ def compute_marker_scores(
         if missing:
             logger.debug(f"{cell_type}: using {found}, missing {missing}")
 
-        scores[cell_type] = data[:, valid_idx].mean(axis=1)
+        col_slice = data[:, valid_idx]
+        if sparse.issparse(col_slice):
+            scores[cell_type] = np.asarray(col_slice.mean(axis=1)).ravel()
+        else:
+            scores[cell_type] = col_slice.mean(axis=1)
 
     return scores
 

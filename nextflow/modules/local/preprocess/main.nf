@@ -8,8 +8,6 @@ process PREPROCESS {
     tuple val(meta), path(scrna), path(xenium)
 
     output:
-    tuple val(meta), path("${meta.id}_scrna_preprocessed.npy"),  emit: scrna_data
-    tuple val(meta), path("${meta.id}_xenium_preprocessed.npy"), emit: xenium_data
     tuple val(meta), path("${meta.id}_scrna_filtered.h5ad"),     emit: scrna_adata
     tuple val(meta), path("${meta.id}_xenium_filtered.h5ad"),    emit: xenium_adata
     tuple val(meta), path("${meta.id}_scrna_celltype_counts.json"), emit: celltype_counts
@@ -27,8 +25,6 @@ process PREPROCESS {
         ${args}
 
     # Rename outputs with sample prefix
-    mv scrna_preprocessed.npy ${meta.id}_scrna_preprocessed.npy
-    mv xenium_preprocessed.npy ${meta.id}_xenium_preprocessed.npy
     mv scrna_filtered.h5ad ${meta.id}_scrna_filtered.h5ad
     mv xenium_filtered.h5ad ${meta.id}_xenium_filtered.h5ad
     mv scrna_celltype_counts.json ${meta.id}_scrna_celltype_counts.json

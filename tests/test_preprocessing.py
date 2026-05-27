@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from scipy import sparse
 
 from multitme.data.preprocessing import preprocess
 
@@ -39,3 +40,13 @@ def test_unknown_method_raises():
     data = _make_counts()
     with pytest.raises(ValueError, match="Unknown method"):
         preprocess(data, method="invalid")
+
+
+def test_log1p_sparse_input_stays_sparse():
+    dense = _make_counts()
+    dense[dense < 8] = 0  # induce sparsity
+    csr = sparse.csr_matrix(dense)
+    result = preprocess(csr, method="log1p")
+    assert sparse.issparse(result)
+    # Same nonzero structure as input (log1p preserves zeros)
+    assert result.nnz == csr.nnz

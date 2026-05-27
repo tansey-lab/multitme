@@ -26,6 +26,17 @@ training:
   save_freq: 1
   seed: 1
 
+spatial:
+  enabled: false
+  obsm_key: spatial # xenium.obsm key holding (n_cells, 2) cell coordinates
+  tile_size: 500.0 # tile edge length (same units as coords)
+  halo: 150.0 # halo width around each tile for spatial neighbors
+  min_core_cells: 1 # drop tiles whose core has fewer cells than this
+  nonspatial_batch_size: 4096 # random scRNA cells per tile (cycle / alignment)
+  k: 10 # k nearest neighbors for spatial regularizer
+  tau: 100.0 # length scale (coord units) for neighbor weighting
+  weight: 1.0 # multiplier on the spatial regularizer loss
+
 pseudo_labels:
   top_k: 50
   normalize: false
