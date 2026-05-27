@@ -46,6 +46,8 @@ def main(argv: list[str] | None = None) -> None:
     adata = load_xenium_adata(args.input)
     adata = adata[adata.X.sum(axis=1) > 0]
     data = preprocess(adata.X, method=args.preprocess_method)
+    if hasattr(data, "toarray"):
+        data = data.toarray()
     data_tensor = torch.tensor(data, dtype=torch.float32)
 
     # Reconstruct model from checkpoint — infer dummy modality dim from last decoder bias

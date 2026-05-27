@@ -80,14 +80,19 @@ def preprocess(
 
     Returns
     -------
-    np.ndarray
-        Transformed expression matrix (float32).
+    np.ndarray or scipy.sparse.csr_matrix
+        Transformed expression matrix (float32). For ``log1p`` with sparse
+        input, sparsity is preserved (log1p(0) = 0) and a CSR matrix is
+        returned; CLR always returns dense since pseudocount+log densifies.
     """
     if method == "log1p":
         adata = anndata.AnnData(X=data)
         sc.pp.normalize_total(adata, target_sum=target_sum)
         sc.pp.log1p(adata)
-        return adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray()
+        X = adata.X
+        if sparse.issparse(X):
+            return X.tocsr().astype(np.float32)
+        return X.astype(np.float32, copy=False)
 
     elif method == "clr":
         is_sparse = sparse.issparse(data)

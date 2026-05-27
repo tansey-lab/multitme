@@ -1,11 +1,14 @@
+import json
 import logging
 import os
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy import sparse
 from torch.utils.data import Dataset
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,53 @@ def check_loss_slope_convergence(losses: list, window: int, threshold: float) ->
     if mean_loss == 0.0:
         return False
     return abs(slope / mean_loss) < threshold
+
+
+def save_loss_history(history: dict, output_dir: str | os.PathLike) -> tuple[Path, Path]:
+    """Write a per-epoch loss plot (PNG) and the raw history (JSON).
+
+    Returns the (png_path, json_path). Matplotlib is imported lazily and uses
+    the non-interactive ``Agg`` backend so this works on headless workers.
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    json_path = out / "loss_history.json"
+    json_path.write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
+
+    png_path = out / "loss_curve.png"
+    total = history.get("total", [])
+    if not total:
+        return png_path, json_path
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    epochs = np.arange(1, len(total) + 1)
+    components = [k for k in history if k != "total" and len(history[k]) == len(total)]
+
+    fig, (ax_total, ax_comp) = plt.subplots(1, 2, figsize=(11, 4.2))
+    ax_total.plot(epochs, total, color="black", linewidth=1.8)
+    ax_total.set_title("Total loss")
+    ax_total.set_xlabel("epoch")
+    ax_total.set_ylabel("loss")
+    ax_total.grid(alpha=0.3)
+
+    for k in components:
+        ax_comp.plot(epochs, history[k], label=k, linewidth=1.2)
+    ax_comp.set_title("Loss components")
+    ax_comp.set_xlabel("epoch")
+    ax_comp.set_ylabel("loss")
+    ax_comp.grid(alpha=0.3)
+    if components:
+        ax_comp.legend(fontsize=8, loc="best")
+
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=120)
+    plt.close(fig)
+    return png_path, json_path
 
 
 class MultiModalCycleVAE(nn.Module):
@@ -323,12 +373,19 @@ class MultiModalCycleVAE(nn.Module):
 
 
 class CyclingDataset(Dataset):
-    def __init__(self, modality_dict, label_dict=None, target_batch_size=256):
-        self.modality_dict = modality_dict
-        self.label_dict = label_dict or {}
-        self.modality_names = list(modality_dict.keys())
+    """Cycles minibatches across modalities, densifying sparse data per-batch.
 
-        self.modality_sizes = {name: data.shape[0] for name, data in modality_dict.items()}
+    ``modality_dict`` values may be torch.Tensor, np.ndarray, or
+    scipy.sparse matrix. Sparse inputs stay sparse in memory and only the
+    selected rows are densified when a batch is requested.
+    """
+
+    def __init__(self, modality_dict, label_dict=None, target_batch_size=256):
+        self.modality_dict = {name: _as_indexable(d) for name, d in modality_dict.items()}
+        self.label_dict = label_dict or {}
+        self.modality_names = list(self.modality_dict.keys())
+
+        self.modality_sizes = {name: d.shape[0] for name, d in self.modality_dict.items()}
         self.largest_modality = max(self.modality_sizes, key=self.modality_sizes.get)
         self.n_cells_max = self.modality_sizes[self.largest_modality]
         self.n_batches = max(1, self.n_cells_max // target_batch_size)
@@ -353,10 +410,27 @@ class CyclingDataset(Dataset):
             start = idx * bs
             end = start + bs
             inds = self.indices[name][start:end]
-            batch[name] = self.modality_dict[name][inds]
+            batch[name] = _select_rows(self.modality_dict[name], inds)
             if name in self.label_dict:
                 labels[name] = self.label_dict[name][inds]
         return batch, labels
+
+
+def _as_indexable(data):
+    """Coerce input to a row-indexable form (CSR if sparse, else as-is)."""
+    if sparse.issparse(data):
+        return data.tocsr()
+    return data
+
+
+def _select_rows(data, inds):
+    """Return a float32 torch tensor of the rows ``inds`` from ``data``."""
+    if sparse.issparse(data):
+        return torch.from_numpy(data[inds].toarray().astype(np.float32, copy=False))
+    if isinstance(data, np.ndarray):
+        return torch.from_numpy(np.ascontiguousarray(data[inds], dtype=np.float32))
+    # torch.Tensor
+    return data[inds]
 
 
 class CycleVAETrainer:
@@ -565,9 +639,14 @@ class CycleVAETrainer:
                 stopped_epoch = epoch
                 break
 
-        # Final checkpoint
+        # Final checkpoint + loss plot/history
         if self.output_dir:
             self.save_checkpoint(stopped_epoch)
+            try:
+                png_path, _ = save_loss_history(self.history, self.output_dir)
+                logger.info(f"Wrote loss curve: {png_path}")
+            except Exception as e:
+                logger.warning(f"Failed to write loss plot: {e}")
 
         total_time = time.time() - start_time
         n_trained = stopped_epoch - start_epoch + 1

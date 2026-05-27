@@ -97,6 +97,31 @@
           "default": false,
           "description": "Skip report generation step."
         },
+        "spatial_enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the spatial CycleVAE variant (tile-based training with spatial regularizer)."
+        },
+        "spatial_obsm_key": {
+          "type": "string",
+          "default": "spatial",
+          "description": "Key in xenium.obsm holding (n_cells, 2) cell coordinates."
+        },
+        "spatial_tile_size": {
+          "type": "number",
+          "default": 500.0,
+          "description": "Tile edge length in coordinate units (used when spatial_enabled=true)."
+        },
+        "spatial_halo": {
+          "type": "number",
+          "default": 150.0,
+          "description": "Halo width around each tile (coordinate units) for neighbor candidates."
+        },
+        "spatial_weight": {
+          "type": "number",
+          "default": 1.0,
+          "description": "Multiplier on the spatial regularizer loss."
+        },
         "conda_env_path": {
           "type": "string",
           "description": "Path to an existing conda environment directory (skips environment creation).",

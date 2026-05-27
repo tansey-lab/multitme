@@ -14,7 +14,15 @@ from torch.utils.data import DataLoader
 
 from multitme.config import load_config
 from multitme.data import pseudo_label_from_markers
-from multitme.model import CycleVAETrainer, CyclingDataset, MultiModalCycleVAE
+from multitme.model import (
+    CycleVAETrainer,
+    CyclingDataset,
+    MultiModalCycleVAE,
+    SpatialCycleVAETrainer,
+    SpatialMultiModalCycleVAE,
+    SpatialTiledDataset,
+    spatial_tile_collate,
+)
 from multitme.utils import configure_logging, get_device, set_seed
 
 logger = logging.getLogger(__name__)
@@ -23,13 +31,17 @@ logger = logging.getLogger(__name__)
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description="Train MultiModal CycleVAE")
-    parser.add_argument("--scrna", type=str, required=True, help="Path to scRNA h5ad file")
-    parser.add_argument("--xenium", type=str, required=True, help="Path to Xenium h5ad file")
     parser.add_argument(
-        "--scrna-preprocessed", type=str, required=True, help="Path to scRNA preprocessed .npy"
+        "--scrna",
+        type=str,
+        required=True,
+        help="Path to scRNA h5ad (with adata.layers['preprocessed'])",
     )
     parser.add_argument(
-        "--xenium-preprocessed", type=str, required=True, help="Path to Xenium preprocessed .npy"
+        "--xenium",
+        type=str,
+        required=True,
+        help="Path to Xenium h5ad (with adata.layers['preprocessed'])",
     )
     parser.add_argument("--config", type=str, required=True, help="YAML config file")
     parser.add_argument(
@@ -62,8 +74,12 @@ def main(argv: list[str] | None = None) -> None:
     # Load preprocessed data (output of cli/preprocess.py)
     scrna = sc.read_h5ad(args.scrna)
     xenium = sc.read_h5ad(args.xenium)
-    scrna_data = np.load(args.scrna_preprocessed)
-    xenium_data = np.load(args.xenium_preprocessed)
+    if "preprocessed" not in scrna.layers:
+        raise KeyError(f"scRNA h5ad {args.scrna!r} missing layer 'preprocessed'")
+    if "preprocessed" not in xenium.layers:
+        raise KeyError(f"Xenium h5ad {args.xenium!r} missing layer 'preprocessed'")
+    scrna_data = scrna.layers["preprocessed"]
+    xenium_data = xenium.layers["preprocessed"]
 
     # Gene-name vectors (configurable column, default to var index)
     def _gene_names(adata, col, name):
@@ -123,15 +139,14 @@ def main(argv: list[str] | None = None) -> None:
     else:
         xenium_labels = torch.full((xenium_data.shape[0],), -1, dtype=torch.long)
 
-    scrna_tensor = torch.tensor(scrna_data, dtype=torch.float32)
-    xenium_tensor = torch.tensor(xenium_data, dtype=torch.float32)
+    logger.info(f"scRNA:  {scrna_data.shape}  (labeled: {(scrna_labels >= 0).sum().item()})")
+    logger.info(f"Xenium: {xenium_data.shape}  (labeled: {(xenium_labels >= 0).sum().item()})")
 
-    logger.info(f"scRNA:  {scrna_tensor.shape}  (labeled: {(scrna_labels >= 0).sum().item()})")
-    logger.info(f"Xenium: {xenium_tensor.shape}  (labeled: {(xenium_labels >= 0).sum().item()})")
+    spatial_cfg = cfg.get("spatial", None)
+    use_spatial = bool(spatial_cfg) and bool(spatial_cfg.get("enabled", False))
 
-    # Model
-    model = MultiModalCycleVAE(
-        modality_dims={"scrna": scrna_tensor.shape[1], "xenium": xenium_tensor.shape[1]},
+    model_kwargs = dict(
+        modality_dims={"scrna": scrna_data.shape[1], "xenium": xenium_data.shape[1]},
         n_latent=cfg.model.n_latent,
         hidden_dims=list(cfg.model.hidden_dims),
         common_masks={"scrna": indices_scrna, "xenium": indices_xenium},
@@ -142,17 +157,58 @@ def main(argv: list[str] | None = None) -> None:
         alignment_method=cfg.model.alignment_method,
         cycle_cls_weight=cfg.model.cycle_cls_weight,
         labeled_modality=cfg.model.labeled_modality,
-    ).to(device)
+    )
+
+    if use_spatial:
+        obsm_key = spatial_cfg.get("obsm_key", "spatial")
+        if obsm_key not in xenium.obsm:
+            available = list(xenium.obsm.keys())
+            raise KeyError(
+                f"Xenium adata.obsm missing key {obsm_key!r}; "
+                f"available: {available}. Set spatial.obsm_key to a valid entry."
+            )
+        coords = np.asarray(xenium.obsm[obsm_key])
+        if coords.ndim != 2 or coords.shape[1] < 2:
+            raise ValueError(
+                f"xenium.obsm[{obsm_key!r}] must have shape (n_cells, 2+); got {coords.shape}"
+            )
+        coords = coords[:, :2].astype(np.float32)
+        logger.info(
+            f"Spatial mode enabled (xenium.obsm[{obsm_key!r}]: {coords.shape}, "
+            f"tile_size={spatial_cfg.get('tile_size', 500.0)}, "
+            f"halo={spatial_cfg.get('halo', 150.0)})"
+        )
+
+        model = SpatialMultiModalCycleVAE(
+            **model_kwargs,
+            spatial_k=spatial_cfg.get("k", 10),
+            spatial_tau=spatial_cfg.get("tau", 100.0),
+            spatial_weight=spatial_cfg.get("weight", 1.0),
+        ).to(device)
+
+        dataset = SpatialTiledDataset(
+            modality_dict={"scrna": scrna_data, "xenium": xenium_data},
+            coord_dict={"xenium": coords},
+            label_dict={"scrna": scrna_labels, "xenium": xenium_labels},
+            tile_size=spatial_cfg.get("tile_size", 500.0),
+            halo=spatial_cfg.get("halo", 150.0),
+            min_core_cells=spatial_cfg.get("min_core_cells", 1),
+            nonspatial_batch_size=spatial_cfg.get("nonspatial_batch_size", cfg.training.batch_size),
+        )
+        loader = DataLoader(dataset, batch_size=1, collate_fn=spatial_tile_collate)
+        TrainerCls = SpatialCycleVAETrainer
+        logger.info(f"SpatialTiledDataset: {len(dataset)} tiles")
+    else:
+        model = MultiModalCycleVAE(**model_kwargs).to(device)
+        dataset = CyclingDataset(
+            modality_dict={"scrna": scrna_data, "xenium": xenium_data},
+            label_dict={"scrna": scrna_labels, "xenium": xenium_labels},
+            target_batch_size=cfg.training.batch_size,
+        )
+        loader = DataLoader(dataset, batch_size=None, shuffle=False)
+        TrainerCls = CycleVAETrainer
 
     logger.info(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
-
-    # Dataset & training
-    dataset = CyclingDataset(
-        modality_dict={"scrna": scrna_tensor, "xenium": xenium_tensor},
-        label_dict={"scrna": scrna_labels, "xenium": xenium_labels},
-        target_batch_size=cfg.training.batch_size,
-    )
-    loader = DataLoader(dataset, batch_size=None, shuffle=False)
 
     # wandb config
     wandb_config = None
@@ -171,7 +227,7 @@ def main(argv: list[str] | None = None) -> None:
         "config": cfg,
     }
 
-    trainer = CycleVAETrainer(
+    trainer = TrainerCls(
         model,
         learning_rate=cfg.training.learning_rate,
         cycle_weight=cfg.training.cycle_weight,

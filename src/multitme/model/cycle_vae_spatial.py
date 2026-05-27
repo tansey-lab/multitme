@@ -6,7 +6,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy import sparse
 from torch.utils.data import Dataset
+
+from multitme.model.cycle_vae import save_loss_history
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,36 @@ def _as_tensor(x, dtype=torch.float32):
     if torch.is_tensor(x):
         return x.to(dtype=dtype)
     return torch.as_tensor(x, dtype=dtype)
+
+
+def _as_indexable(data):
+    """Coerce a modality matrix to a row-indexable form (CSR if sparse)."""
+    if sparse.issparse(data):
+        return data.tocsr()
+    return data
+
+
+def _n_rows(data):
+    if sparse.issparse(data):
+        return data.shape[0]
+    if torch.is_tensor(data):
+        return data.size(0)
+    return data.shape[0]
+
+
+def _select_rows(data, inds):
+    """Return a float32 torch tensor of rows ``inds`` from ``data``.
+
+    ``inds`` may be a numpy array or a torch LongTensor. Sparse inputs are
+    densified only for the selected rows.
+    """
+    if sparse.issparse(data):
+        idx_np = inds.cpu().numpy() if torch.is_tensor(inds) else np.asarray(inds)
+        return torch.from_numpy(data[idx_np].toarray().astype(np.float32, copy=False))
+    if isinstance(data, np.ndarray):
+        idx_np = inds.cpu().numpy() if torch.is_tensor(inds) else inds
+        return torch.from_numpy(np.ascontiguousarray(data[idx_np], dtype=np.float32))
+    return data[inds]
 
 
 def spatial_tile_collate(items):
@@ -455,12 +488,14 @@ class MultiModalCycleVAE(nn.Module):
 
 
 class CyclingDataset(Dataset):
-    def __init__(self, modality_dict, label_dict=None, target_batch_size=256):
-        self.modality_dict = modality_dict
-        self.label_dict = label_dict or {}
-        self.modality_names = list(modality_dict.keys())
+    """Cycles minibatches across modalities, densifying sparse data per-batch."""
 
-        self.modality_sizes = {name: data.shape[0] for name, data in modality_dict.items()}
+    def __init__(self, modality_dict, label_dict=None, target_batch_size=256):
+        self.modality_dict = {name: _as_indexable(d) for name, d in modality_dict.items()}
+        self.label_dict = label_dict or {}
+        self.modality_names = list(self.modality_dict.keys())
+
+        self.modality_sizes = {name: _n_rows(d) for name, d in self.modality_dict.items()}
         self.largest_modality = max(self.modality_sizes, key=self.modality_sizes.get)
         self.n_cells_max = self.modality_sizes[self.largest_modality]
         self.n_batches = max(1, self.n_cells_max // target_batch_size)
@@ -485,7 +520,7 @@ class CyclingDataset(Dataset):
             start = idx * bs
             end = start + bs
             inds = self.indices[name][start:end]
-            batch[name] = self.modality_dict[name][inds]
+            batch[name] = _select_rows(self.modality_dict[name], inds)
             if name in self.label_dict:
                 labels[name] = self.label_dict[name][inds]
         return batch, labels
@@ -508,16 +543,21 @@ class SpatialTiledDataset(Dataset):
         halo=150.0,
         min_core_cells=1,
         drop_empty=True,
+        nonspatial_batch_size=256,
     ):
-        self.modality_dict = {name: _as_tensor(data) for name, data in modality_dict.items()}
+        self.modality_dict = {name: _as_indexable(data) for name, data in modality_dict.items()}
         self.coord_dict = {name: _as_tensor(coords) for name, coords in coord_dict.items()}
         self.label_dict = label_dict or {}
         self.tile_size = float(tile_size)
         self.halo = float(halo)
         self.min_core_cells = int(min_core_cells)
         self.drop_empty = drop_empty
+        self.nonspatial_batch_size = int(nonspatial_batch_size)
         self.modality_names = list(self.modality_dict.keys())
         self.spatial_modalities = [name for name in self.modality_names if name in self.coord_dict]
+        self.nonspatial_modalities = [
+            name for name in self.modality_names if name not in self.coord_dict
+        ]
 
         if not self.spatial_modalities:
             raise ValueError("SpatialTiledDataset requires coordinates for at least one modality")
@@ -525,7 +565,7 @@ class SpatialTiledDataset(Dataset):
         for name in self.spatial_modalities:
             if self.coord_dict[name].ndim != 2 or self.coord_dict[name].size(1) != 2:
                 raise ValueError(f"Coordinates for {name!r} must have shape (n_cells, 2)")
-            if self.coord_dict[name].size(0) != self.modality_dict[name].size(0):
+            if self.coord_dict[name].size(0) != _n_rows(self.modality_dict[name]):
                 raise ValueError(f"Data and coordinates for {name!r} have different lengths")
 
         all_coords = torch.cat([self.coord_dict[name] for name in self.spatial_modalities], dim=0)
@@ -542,7 +582,12 @@ class SpatialTiledDataset(Dataset):
         self.tiles = []
         for x0 in x_edges[:-1]:
             for y0 in y_edges[:-1]:
-                tile = (float(x0), float(y0), float(x0 + self.tile_size), float(y0 + self.tile_size))
+                tile = (
+                    float(x0),
+                    float(y0),
+                    float(x0 + self.tile_size),
+                    float(y0 + self.tile_size),
+                )
                 if not drop_empty or self._tile_core_count(tile) >= self.min_core_cells:
                     self.tiles.append(tile)
 
@@ -589,9 +634,20 @@ class SpatialTiledDataset(Dataset):
             )
 
             inds = torch.nonzero(in_halo, as_tuple=False).squeeze(1)
-            batch[name] = self.modality_dict[name][inds]
+            batch[name] = _select_rows(self.modality_dict[name], inds)
             coords_batch[name] = coords[inds]
             core_masks[name] = core[inds]
+            if name in self.label_dict:
+                labels[name] = self.label_dict[name][inds]
+
+        # Non-spatial modalities: random sample per tile so they still contribute
+        # to cycle / alignment / classification losses. No coords or core mask
+        # entry — treated as all-core by the model.
+        for name in self.nonspatial_modalities:
+            n_total = _n_rows(self.modality_dict[name])
+            k = min(self.nonspatial_batch_size, n_total)
+            inds = torch.from_numpy(np.random.choice(n_total, size=k, replace=False))
+            batch[name] = _select_rows(self.modality_dict[name], inds)
             if name in self.label_dict:
                 labels[name] = self.label_dict[name][inds]
 
@@ -717,7 +773,9 @@ class CycleVAETrainer:
             data_dict = self._move_dict(batch, device, dtype=torch.float32)
             label_dict = self._move_dict(labels, device) if labels else None
             coords_dict = self._move_dict(coords, device, dtype=torch.float32) if coords else None
-            core_masks = self._move_dict(core_masks, device, dtype=torch.bool) if core_masks else None
+            core_masks = (
+                self._move_dict(core_masks, device, dtype=torch.bool) if core_masks else None
+            )
 
             losses = self.model(
                 data_dict,
@@ -832,6 +890,11 @@ class CycleVAETrainer:
 
         if self.output_dir:
             self.save_checkpoint(stopped_epoch)
+            try:
+                png_path, _ = save_loss_history(self.history, self.output_dir)
+                logger.info(f"Wrote loss curve: {png_path}")
+            except Exception as e:
+                logger.warning(f"Failed to write loss plot: {e}")
 
         total_time = time.time() - start_time
         n_trained = stopped_epoch - start_epoch + 1

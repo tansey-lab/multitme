@@ -1,4 +1,6 @@
+import numpy as np
 import torch
+from scipy import sparse
 
 from multitme.model import CycleVAETrainer, CyclingDataset, MultiModalCycleVAE
 
@@ -94,6 +96,84 @@ def test_cycling_dataset():
     batch, labels = ds[0]
     assert "a" in batch and "b" in batch
     assert "a" in labels
+
+
+def test_cycling_dataset_sparse_input():
+    rng = np.random.default_rng(0)
+    dense_a = rng.poisson(0.3, size=(100, 50)).astype(np.float32)
+    dense_b = rng.poisson(0.3, size=(80, 30)).astype(np.float32)
+    sp_a = sparse.csr_matrix(dense_a)
+    sp_b = sparse.csr_matrix(dense_b)
+
+    ds = CyclingDataset(
+        modality_dict={"a": sp_a, "b": sp_b},
+        target_batch_size=32,
+    )
+    batch, _ = ds[0]
+    assert isinstance(batch["a"], torch.Tensor) and batch["a"].dtype == torch.float32
+    assert isinstance(batch["b"], torch.Tensor) and batch["b"].dtype == torch.float32
+    assert batch["a"].shape[1] == 50 and batch["b"].shape[1] == 30
+
+
+def test_trainer_writes_loss_plot(tmp_path):
+    model = _make_model()
+    data_a = torch.randn(64, 50)
+    data_b = torch.randn(64, 30)
+    labels_a = torch.randint(0, 5, (64,))
+
+    ds = CyclingDataset(
+        modality_dict={"a": data_a, "b": data_b},
+        label_dict={"a": labels_a},
+        target_batch_size=32,
+    )
+    loader = torch.utils.data.DataLoader(ds, batch_size=None)
+    trainer = CycleVAETrainer(model, learning_rate=1e-3, output_dir=str(tmp_path))
+    trainer.fit(loader, n_epochs=2, print_every=1)
+
+    assert (tmp_path / "loss_curve.png").exists()
+    assert (tmp_path / "loss_history.json").exists()
+
+
+def test_spatial_trainer_one_epoch(tmp_path):
+    from multitme.model import (
+        SpatialCycleVAETrainer,
+        SpatialMultiModalCycleVAE,
+        SpatialTiledDataset,
+        spatial_tile_collate,
+    )
+
+    rng = np.random.default_rng(0)
+    n_a, n_b = 64, 80
+    data_a = torch.randn(n_a, 50)  # scrna-like, no coords
+    data_b = torch.randn(n_b, 30)  # xenium-like, has coords
+    coords_b = torch.from_numpy(rng.uniform(0, 1000, size=(n_b, 2)).astype("float32"))
+    labels_a = torch.randint(0, 5, (n_a,))
+
+    ds = SpatialTiledDataset(
+        modality_dict={"a": data_a, "b": data_b},
+        coord_dict={"b": coords_b},
+        label_dict={"a": labels_a},
+        tile_size=400.0,
+        halo=100.0,
+        min_core_cells=1,
+        nonspatial_batch_size=16,
+    )
+    loader = torch.utils.data.DataLoader(ds, batch_size=1, collate_fn=spatial_tile_collate)
+
+    model = SpatialMultiModalCycleVAE(
+        modality_dims={"a": 50, "b": 30},
+        n_latent=10,
+        hidden_dims=[32, 16],
+        n_cell_types=5,
+        cycle_pairs=[("a", "b"), ("b", "a")],
+        spatial_k=5,
+        spatial_tau=50.0,
+        spatial_weight=0.5,
+    )
+    trainer = SpatialCycleVAETrainer(model, learning_rate=1e-3, output_dir=str(tmp_path))
+    losses = trainer.train_epoch(loader, epoch=0)
+    assert "total" in losses
+    assert "spatial" in losses
 
 
 def test_trainer_one_epoch():
