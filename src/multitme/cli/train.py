@@ -35,6 +35,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--resume-from", type=str, default=None, help="Path to checkpoint.pt to resume from"
     )
+    parser.add_argument(
+        "--scrna-gene-col",
+        type=str,
+        default=None,
+        help="Column in scrna.var holding gene names for overlap (defaults to var index)",
+    )
+    parser.add_argument(
+        "--xenium-gene-col",
+        type=str,
+        default=None,
+        help="Column in xenium.var holding gene names for overlap (defaults to var index)",
+    )
     parser.add_argument("overrides", nargs="*", help="OmegaConf overrides")
     args = parser.parse_args(argv)
 
@@ -53,10 +65,37 @@ def main(argv: list[str] | None = None) -> None:
     scrna_data = np.load(args.scrna_preprocessed)
     xenium_data = np.load(args.xenium_preprocessed)
 
+    # Gene-name vectors (configurable column, default to var index)
+    def _gene_names(adata, col, name):
+        if col is None:
+            return adata.var_names.astype(str).to_numpy()
+        if col not in adata.var.columns:
+            raise ValueError(
+                f"{name} gene column {col!r} not found in .var. "
+                f"Available columns: {list(adata.var.columns)}"
+            )
+        return adata.var[col].astype(str).to_numpy()
+
+    scrna_genes = _gene_names(scrna, args.scrna_gene_col, "scRNA")
+    xenium_genes = _gene_names(xenium, args.xenium_gene_col, "Xenium")
+
     # Common genes
-    common_genes = np.intersect1d(scrna.var_names, xenium.var_names)
-    indices_scrna = scrna.var.index.get_indexer(common_genes)
-    indices_xenium = xenium.var.index.get_indexer(common_genes)
+    common_genes = np.intersect1d(scrna_genes, xenium_genes)
+    if len(common_genes) == 0:
+        raise ValueError(
+            "Zero gene overlap between scRNA and Xenium datasets. "
+            f"scRNA has {scrna.n_vars} genes (using "
+            f"{args.scrna_gene_col or 'var index'}), Xenium has {xenium.n_vars} genes "
+            f"(using {args.xenium_gene_col or 'var index'}), but none match. "
+            "Check that gene identifiers use the same convention "
+            "(e.g., both gene symbols or both Ensembl IDs), or specify "
+            "--scrna-gene-col / --xenium-gene-col."
+        )
+    # Map common gene names back to positional indices in each modality
+    scrna_pos = {g: i for i, g in enumerate(scrna_genes)}
+    xenium_pos = {g: i for i, g in enumerate(xenium_genes)}
+    indices_scrna = np.array([scrna_pos[g] for g in common_genes])
+    indices_xenium = np.array([xenium_pos[g] for g in common_genes])
 
     # Cell types
     unique_types = sorted(set(scrna.obs[cfg.data.annotation_column]))
@@ -74,7 +113,7 @@ def main(argv: list[str] | None = None) -> None:
         marker_dict = dict(cfg.marker_dict)
         xenium_labels = pseudo_label_from_markers(
             data=xenium_data,
-            gene_names=list(xenium.var_names),
+            gene_names=list(xenium_genes),
             marker_dict=marker_dict,
             type_to_idx=type_to_idx,
             top_k=cfg.pseudo_labels.top_k,
