@@ -102,6 +102,7 @@ class MultiModalCycleVAE(nn.Module):
         alignment_method="swd",
         cycle_cls_weight=1000.0,
         labeled_modality="scrna",
+        common_feature_weight=1.0,
     ):
         super().__init__()
         if hidden_dims is None:
@@ -118,6 +119,7 @@ class MultiModalCycleVAE(nn.Module):
         self.alignment_method = alignment_method
         self.cycle_cls_weight = cycle_cls_weight
         self.labeled_modality = labeled_modality
+        self.common_feature_weight = common_feature_weight
 
         if cycle_pairs is None:
             self.cycle_pairs = [
@@ -345,7 +347,7 @@ class MultiModalCycleVAE(nn.Module):
             + beta * losses["kl"]
             + losses["classification"]
             + losses["cycle"]
-            + losses["common_feature"]
+            + self.common_feature_weight * losses["common_feature"]
             + losses["alignment"]
             + losses["cycle_cls"]
         )

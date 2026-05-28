@@ -105,6 +105,7 @@ class MultiModalCycleVAE(nn.Module):
         spatial_k=10,
         spatial_tau=100.0,
         spatial_weight=1.0,
+        common_feature_weight=1.0,
     ):
         super().__init__()
         if hidden_dims is None:
@@ -124,6 +125,7 @@ class MultiModalCycleVAE(nn.Module):
         self.spatial_k = spatial_k
         self.spatial_tau = spatial_tau
         self.spatial_weight = spatial_weight
+        self.common_feature_weight = common_feature_weight
 
         if cycle_pairs is None:
             self.cycle_pairs = [
@@ -459,7 +461,7 @@ class MultiModalCycleVAE(nn.Module):
             + beta * losses["kl"]
             + losses["classification"]
             + losses["cycle"]
-            + losses["common_feature"]
+            + self.common_feature_weight * losses["common_feature"]
             + losses["alignment"]
             + losses["cycle_cls"]
             + losses["spatial"]

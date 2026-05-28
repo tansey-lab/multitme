@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
         "type_alignment_weight": 100.0,
         "cycle_cls_weight": 1000.0,
         "labeled_modality": "scrna",
+        "common_feature_weight": 1.0,
     },
     "training": {
         # n_epochs: if null, slope-based early stopping is used (see slope_* params below).
