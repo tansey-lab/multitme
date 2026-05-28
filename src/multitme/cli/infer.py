@@ -70,6 +70,7 @@ def main(argv: list[str] | None = None) -> None:
         type_alignment_weight=cfg.model.type_alignment_weight,
         cycle_cls_weight=cfg.model.cycle_cls_weight,
         labeled_modality=cfg.model.labeled_modality,
+        common_feature_weight=cfg.model.get("common_feature_weight", 1.0),
     )
     model.load_state_dict(state_dict)
     model = model.to(device)

@@ -24,6 +24,8 @@ process TRAIN {
         "spatial.halo=${params.spatial_halo ?: 150.0} " +
         "spatial.weight=${params.spatial_weight ?: 1.0}"
     ) : ''
+    def model_overrides = (params.common_feature_weight != null) ?
+        "model.common_feature_weight=${params.common_feature_weight}" : ''
     """
     # Set wandb API key if provided
     if [ -n "${wandb_key}" ]; then
@@ -41,6 +43,7 @@ process TRAIN {
         data.annotation_column=${params.annotation_column ?: 'major_annotation'} \\
         output.dir=. \\
         ${spatial_overrides} \\
+        ${model_overrides} \\
         ${args}
 
     mv checkpoint.pt ${meta.id}_checkpoint.pt

@@ -157,6 +157,7 @@ def main(argv: list[str] | None = None) -> None:
         alignment_method=cfg.model.alignment_method,
         cycle_cls_weight=cfg.model.cycle_cls_weight,
         labeled_modality=cfg.model.labeled_modality,
+        common_feature_weight=cfg.model.get("common_feature_weight", 1.0),
     )
 
     if use_spatial:
