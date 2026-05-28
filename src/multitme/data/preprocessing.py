@@ -57,6 +57,58 @@ def downsample_scrna(adata, cell_type_col, max_cells=100_000, seed=0):
     return adata[keep]
 
 
+def get_raw_counts(adata):
+    """Return a raw-counts matrix from ``adata``, refusing already-transformed data.
+
+    Resolution order:
+      1. If ``adata.raw`` is present, use ``adata.raw.X`` (scanpy convention for raw counts).
+      2. Otherwise, refuse if ``"log1p" in adata.uns`` — scanpy sets this when ``sc.pp.log1p``
+         has been applied, so the matrix is already log-transformed.
+      3. Otherwise, refuse if ``adata.X`` is not integer-valued — non-integer values are
+         a strong signal that the matrix has been normalized/transformed.
+
+    Raises
+    ------
+    ValueError
+        If the data appears already transformed and no raw counts are available.
+    """
+    if adata.raw is not None:
+        X = adata.raw.X
+        if not _is_integer_matrix(X):
+            raise ValueError(
+                "adata.raw.X does not contain integer counts; cannot recover raw counts safely."
+            )
+        return X
+
+    if "log1p" in adata.uns:
+        raise ValueError(
+            "adata.uns contains 'log1p' (set by sc.pp.log1p) but no adata.raw is available; "
+            "refusing to re-normalize already-transformed data."
+        )
+
+    X = adata.X
+    if not _is_integer_matrix(X):
+        raise ValueError(
+            "adata.X is not integer-valued, suggesting it has already been normalized/"
+            "transformed, but no raw counts are available in adata.raw. Refusing to "
+            "preprocess to avoid double-transforming."
+        )
+    return X
+
+
+def _is_integer_matrix(X, sample_size=10000):
+    """Cheap check: are all values in X integers? Samples up to sample_size nonzero entries."""
+    data = X.data if sparse.issparse(X) else np.asarray(X).ravel()
+    if data.size == 0:
+        return True
+    if np.issubdtype(data.dtype, np.integer):
+        return True
+    if data.size > sample_size:
+        idx = np.linspace(0, data.size - 1, sample_size).astype(np.int64)
+        data = data[idx]
+    return np.all(data == np.floor(data))
+
+
 def preprocess(
     data, method="log1p", target_sum=1e4, pseudocount=1e-3, clip_percentile=99.5, chunk_size=2000
 ):

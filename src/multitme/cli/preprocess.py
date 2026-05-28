@@ -10,7 +10,7 @@ from pathlib import Path
 import scanpy as sc
 
 from multitme.config import load_config
-from multitme.data import load_xenium_adata, preprocess
+from multitme.data import get_raw_counts, load_xenium_adata, preprocess
 from multitme.data.preprocessing import downsample_scrna
 from multitme.utils import configure_logging
 
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     logger.info(f"scRNA after downsampling: {adata.n_obs} cells (downsampled={downsampled})")
     data = preprocess(
-        adata.X,
+        get_raw_counts(adata),
         method=cfg.data.preprocess_method,
         pseudocount=cfg.data.pseudocount,
         clip_percentile=cfg.data.clip_percentile,
@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> None:
     adata = load_xenium_adata(args.xenium)
     adata = adata[adata.X.sum(axis=1) > 0]
     data = preprocess(
-        adata.X,
+        get_raw_counts(adata),
         method=cfg.data.preprocess_method,
         pseudocount=cfg.data.pseudocount,
         clip_percentile=cfg.data.clip_percentile,

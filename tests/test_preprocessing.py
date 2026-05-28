@@ -1,8 +1,9 @@
+import anndata
 import numpy as np
 import pytest
 from scipy import sparse
 
-from multitme.data.preprocessing import preprocess
+from multitme.data.preprocessing import get_raw_counts, preprocess
 
 
 def _make_counts(n_cells=50, n_genes=20):
@@ -40,6 +41,40 @@ def test_unknown_method_raises():
     data = _make_counts()
     with pytest.raises(ValueError, match="Unknown method"):
         preprocess(data, method="invalid")
+
+
+def test_get_raw_counts_uses_integer_X():
+    counts = _make_counts().astype(np.int32)
+    adata = anndata.AnnData(X=counts)
+    X = get_raw_counts(adata)
+    assert np.array_equal(X, counts)
+
+
+def test_get_raw_counts_rejects_log1p_uns():
+    counts = _make_counts().astype(np.int32)
+    adata = anndata.AnnData(X=counts.astype(np.float32))
+    adata.uns["log1p"] = {"base": None}
+    with pytest.raises(ValueError, match="log1p"):
+        get_raw_counts(adata)
+
+
+def test_get_raw_counts_rejects_continuous_X():
+    counts = _make_counts().astype(np.float32)
+    counts += 0.5  # make non-integer
+    adata = anndata.AnnData(X=counts)
+    with pytest.raises(ValueError, match="not integer-valued"):
+        get_raw_counts(adata)
+
+
+def test_get_raw_counts_prefers_raw():
+    raw_counts = _make_counts().astype(np.int32)
+    raw_adata = anndata.AnnData(X=raw_counts)
+    transformed = np.log1p(raw_counts.astype(np.float32))
+    adata = anndata.AnnData(X=transformed)
+    adata.raw = raw_adata
+    adata.uns["log1p"] = {"base": None}
+    X = get_raw_counts(adata)
+    assert np.array_equal(np.asarray(X), raw_counts)
 
 
 def test_log1p_sparse_input_stays_sparse():

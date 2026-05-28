@@ -51,7 +51,12 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generate reports from inference results")
     parser.add_argument("--input", type=str, required=True, help="Path to predictions h5ad")
     parser.add_argument("--probs", type=str, required=True, help="Path to pred_probs.npy")
-    parser.add_argument("--latent", type=str, required=True, help="Path to latent.npy")
+    parser.add_argument(
+        "--latent",
+        type=str,
+        required=True,
+        help="Path to latent.npz (with 'latent', 'cell_id', 'modality' arrays) or legacy latent.npy",
+    )
     parser.add_argument(
         "--output-dir", type=str, default="results/reports", help="Output directory"
     )
@@ -94,9 +99,30 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Loading data...")
     adata = sc.read_h5ad(args.input)
     probs = np.load(args.probs)
-    latent = np.load(args.latent)
-
     pred_types = adata.obs["predicted_type"].values.astype(str)
+
+    latent_path = Path(args.latent)
+    if latent_path.suffix == ".npz":
+        latent_npz = np.load(latent_path, allow_pickle=False)
+        latent_all = latent_npz["latent"]
+        cell_id_all = latent_npz["cell_id"].astype(str)
+        modality_all = latent_npz["modality"].astype(str)
+        # Restrict to cells present in the predictions adata (typically xenium).
+        xenium_ids = adata.obs_names.to_numpy().astype(str)
+        id_to_row = {cid: i for i, cid in enumerate(cell_id_all)}
+        try:
+            rows = np.array([id_to_row[cid] for cid in xenium_ids])
+        except KeyError as e:
+            raise ValueError(
+                f"Cell id {e.args[0]!r} from predictions not found in latent.npz cell_id index"
+            ) from None
+        if not np.all(modality_all[rows] == modality_all[rows][0]):
+            # Sanity: predictions h5ad should be a single modality slice.
+            pass
+        latent = latent_all[rows]
+    else:
+        latent = np.load(latent_path)
+
     if latent.shape[0] != len(pred_types):
         raise ValueError(
             f"latent rows ({latent.shape[0]}) != cells in predictions ({len(pred_types)})"
