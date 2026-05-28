@@ -7,9 +7,10 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import scanpy as sc
 import torch
 
-from multitme.data import load_xenium_adata, preprocess
+from multitme.data import get_raw_counts, load_xenium_adata, preprocess
 from multitme.model import MultiModalCycleVAE
 from multitme.utils import configure_logging, get_device
 
@@ -29,6 +30,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--modality", type=str, default="xenium", help="Modality name")
     parser.add_argument("--output-dir", type=str, default="results", help="Output directory")
     parser.add_argument("--preprocess-method", type=str, default="clr", help="Preprocessing method")
+    parser.add_argument(
+        "--scrna",
+        type=str,
+        default=None,
+        help="Optional scRNA h5ad to also project into latent space (saved alongside xenium)",
+    )
     args = parser.parse_args(argv)
 
     device = get_device()
@@ -45,7 +52,7 @@ def main(argv: list[str] | None = None) -> None:
     # Load data
     adata = load_xenium_adata(args.input)
     adata = adata[adata.X.sum(axis=1) > 0]
-    data = preprocess(adata.X, method=args.preprocess_method)
+    data = preprocess(get_raw_counts(adata), method=args.preprocess_method)
     if hasattr(data, "toarray"):
         data = data.toarray()
     data_tensor = torch.tensor(data, dtype=torch.float32)
@@ -83,8 +90,35 @@ def main(argv: list[str] | None = None) -> None:
     pred_idx = probs.argmax(axis=1)
     pred_types = np.array([unique_types[i] for i in pred_idx])
 
-    # Save results
-    np.save(outdir / "latent.npy", z)
+    # Latent projection — include scRNA cells too if provided so the saved
+    # latent.npz covers every cell the model has seen, indexed by cell id + modality.
+    latent_blocks = [z]
+    cell_id_blocks = [adata.obs_names.to_numpy().astype(str)]
+    modality_blocks = [np.full(z.shape[0], args.modality, dtype=object)]
+
+    if args.scrna is not None:
+        scrna_adata = sc.read_h5ad(args.scrna)
+        scrna_adata = scrna_adata[scrna_adata.X.sum(axis=1) > 0]
+        scrna_data = preprocess(get_raw_counts(scrna_adata), method=args.preprocess_method)
+        if hasattr(scrna_data, "toarray"):
+            scrna_data = scrna_data.toarray()
+        scrna_tensor = torch.tensor(scrna_data, dtype=torch.float32)
+        with torch.no_grad():
+            z_scrna = model.get_latent(scrna_tensor.to(device), "scrna").cpu().numpy()
+        latent_blocks.append(z_scrna)
+        cell_id_blocks.append(scrna_adata.obs_names.to_numpy().astype(str))
+        modality_blocks.append(np.full(z_scrna.shape[0], "scrna", dtype=object))
+
+    latent_all = np.concatenate(latent_blocks, axis=0)
+    cell_ids = np.concatenate(cell_id_blocks, axis=0).astype(str)
+    modalities = np.concatenate(modality_blocks, axis=0).astype(str)
+
+    np.savez(
+        outdir / "latent.npz",
+        latent=latent_all,
+        cell_id=cell_ids,
+        modality=modalities,
+    )
     np.save(outdir / "pred_idx.npy", pred_idx)
     np.save(outdir / "pred_probs.npy", probs)
     adata.obs["predicted_type"] = pred_types

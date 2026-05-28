@@ -60,6 +60,7 @@ workflow MULTITME {
     INFER (
         TRAIN.out.checkpoint,
         PREPROCESS.out.xenium_adata,
+        PREPROCESS.out.scrna_adata,
     )
     ch_versions = ch_versions.mix(INFER.out.versions)
 
